@@ -25,6 +25,8 @@ import {
   localFileLinks,
 } from "./CodexFileLink";
 import { Button } from "@/components/ui/button";
+import { SkillMentionText } from "@/modules/plugins/SkillMentionText";
+import { expandSkillMentions } from "@/modules/plugins/skillMention";
 import { itemText, type Item, type Session, type Turn } from "./protocol";
 import type { CodexClient } from "./client";
 import {
@@ -219,7 +221,7 @@ function Message({
                           {match[2].replace(/\\/g, "/").split("/").pop()}
                         </button>
                       ) : (
-                        line
+                        <SkillMentionText text={line} onOpen={onOpenFile} />
                       )}
                     </span>
                   );
@@ -305,7 +307,9 @@ function Message({
             icon={Copy01Icon}
             label="复制消息"
             onClick={() =>
-              void writeText(text).catch((error) => toast.error(String(error)))
+              void writeText(user ? expandSkillMentions(text) : text).catch(
+                (error) => toast.error(String(error)),
+              )
             }
           />
           {!user && item.type === "agentMessage" && (

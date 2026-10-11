@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -30,7 +29,19 @@ import {
 import { ZoomableImage } from "@/modules/reader/ZoomableImage";
 import type { PiImage, PiModel, PiViewState } from "./types";
 import { PI_LOCAL_COMMANDS } from "./commands";
-import { draftHasPayload, EMPTY_DRAFT, type PiDraft } from "./piAttachments";
+import {
+  draftHasPayload,
+  EMPTY_DRAFT,
+  type PiDraft,
+  type PiSkill,
+} from "./piAttachments";
+import { listPiAssets } from "./native";
+import {
+  collapseSkillMentions,
+  insertSkillMention,
+  skillShortName,
+} from "@/modules/plugins/skillMention";
+import { SkillMentionInput } from "@/modules/plugins/SkillMentionInput";
 import { usePiComposerDropStore } from "./piComposerDropStore";
 import { VoiceInputButton } from "@/modules/plugins/pi-agent/voice/VoiceInputButton";
 import {
@@ -159,18 +170,46 @@ export function PiComposer(props: Props) {
   const [commandDismissed, setCommandDismissed] = useState(false);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const commandsPending = useRef(false);
-  /** 打开 slash 菜单时加载原生命令，并阻止连续按键重复请求。 */
+  const [skillCatalog, setSkillCatalog] = useState<PiSkill[]>([]);
+  const skillsPending = useRef(false);
+  /** 打开 slash 菜单时加载原生命令；技能路径只在选中 skill: 时补齐。 */
   const loadCommands = async () => {
     if (
-      !props.onLoadCommands ||
       commandsPending.current ||
-      props.view.commands.length
+      (!props.onLoadCommands && skillCatalog.length)
+    )
+      return;
+    if (
+      props.onLoadCommands &&
+      props.view.commands.length &&
+      skillCatalog.length
     )
       return;
     commandsPending.current = true;
     setCommandsLoading(true);
     try {
-      await props.onLoadCommands();
+      const loading: Promise<unknown>[] = [];
+      if (props.onLoadCommands && !props.view.commands.length)
+        loading.push(props.onLoadCommands());
+      if (!skillsPending.current && !skillCatalog.length) {
+        skillsPending.current = true;
+        loading.push(
+          listPiAssets("skills")
+            .then((assets) =>
+              setSkillCatalog(
+                assets.map((asset) => ({
+                  name: skillShortName(asset.name),
+                  path: asset.path,
+                  ...(asset.summary ? { description: asset.summary } : {}),
+                })),
+              ),
+            )
+            .finally(() => {
+              skillsPending.current = false;
+            }),
+        );
+      }
+      await Promise.all(loading);
     } catch (error) {
       props.onError(error);
     } finally {
@@ -221,7 +260,12 @@ export function PiComposer(props: Props) {
       changeDraft(restored);
     } else {
       recallCaret.current = direction === -1 ? "start" : "end";
-      changeDraft({ text: history[next] ?? "", images: [], files: [] });
+      changeDraft({
+        text: history[next] ?? "",
+        images: [],
+        files: [],
+        skills: [],
+      });
     }
     applyingHistory.current = false;
     setRecallRevision((value) => value + 1);
@@ -234,9 +278,24 @@ export function PiComposer(props: Props) {
     if (text.trim()) setSubmitted((value) => prependPrompt(value, text));
     props.onSend(behavior);
   };
-  /** 补全命令时不追加空格并关闭菜单，保留焦点供再次回车执行。 */
+  /** 菜单仍是 /skill:name；选中后输入行改成 $name，路径放绑定。 */
   const chooseCommand = (name: string) => {
-    changeDraft({ ...props.draft, text: `/${name}` });
+    if (/^skill:/iu.test(name)) {
+      const short = skillShortName(name);
+      const known = skillCatalog.find(
+        (skill) => skill.name.toLowerCase() === short.toLowerCase(),
+      );
+      const next = insertSkillMention(
+        props.draft.text,
+        known ?? { name: short, path: "" },
+        props.draft.skills,
+      );
+      changeDraft({
+        ...props.draft,
+        text: next.text,
+        skills: next.skills,
+      });
+    } else changeDraft({ ...props.draft, text: `/${name}` });
     setCommandDismissed(true);
     setCommandIndex(0);
     input.current?.focus();
@@ -506,8 +565,9 @@ export function PiComposer(props: Props) {
             ))}
           </div>
         )}
-        <Textarea
-          ref={input}
+        <SkillMentionInput
+          textareaRef={input}
+          skills={props.draft.skills}
           aria-label="向 Pi 发送任务"
           placeholder="描述任务，或输入 / 命令…"
           value={props.draft.text}
@@ -520,7 +580,15 @@ export function PiComposer(props: Props) {
             setCommandIndex(0);
             setCommandDismissed(false);
             if (event.target.value.startsWith("/")) void loadCommands();
-            changeDraft({ ...props.draft, text: event.target.value });
+            const collapsed = collapseSkillMentions(
+              event.target.value,
+              props.draft.skills,
+            );
+            changeDraft({
+              ...props.draft,
+              text: collapsed.text,
+              skills: collapsed.skills,
+            });
           }}
           onPaste={(event) => {
             const images = [...event.clipboardData.files].filter((file) =>

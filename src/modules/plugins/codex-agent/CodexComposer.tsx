@@ -20,7 +20,6 @@ import {
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -50,6 +49,11 @@ import { CODEX_COMMANDS, parseCommand } from "./commands";
 import { SANDBOX_LABELS, sandboxMode, type SandboxMode } from "./sandbox";
 import { listResources } from "./resources";
 import { VoiceInputButton } from "@/modules/plugins/codex-agent/voice/VoiceInputButton";
+import {
+  collapseSkillMentions,
+  insertSkillMention,
+} from "@/modules/plugins/skillMention";
+import { SkillMentionInput } from "@/modules/plugins/SkillMentionInput";
 
 /** 将剪贴板图片读成官方 image 输入支持的数据 URL。 */
 function imageUrl(file: File): Promise<string> {
@@ -156,11 +160,13 @@ export function CodexComposer({
         description: skill.shortDescription || skill.description,
         skill,
       })),
-    ].filter((command) =>
-      command.name
-        .toLowerCase()
-        .startsWith(session.draft.slice(1).toLowerCase()),
-    );
+    ].filter((command) => {
+      const query = session.draft.slice(1).toLowerCase();
+      const name = command.name.toLowerCase();
+      if (command.skill)
+        return name.startsWith(query.startsWith("$") ? query.slice(1) : query);
+      return name.startsWith(query);
+    });
   const showCommands = slashOpen;
   useLayoutEffect(() => {
     if (showCommands)
@@ -217,36 +223,35 @@ export function CodexComposer({
     if (disabled) return;
     recall.current = -1;
     const command = parseCommand(session.draft);
-    if (command) {
+    const builtin =
+      command && CODEX_COMMANDS.some((item) => item.name === command.name)
+        ? command
+        : null;
+    if (builtin) {
       if (commandBusy) return;
-      if (!CODEX_COMMANDS.some((item) => item.name === command.name)) {
-        toast.error(`暂不支持 /${command.name}，输入 / 查看可用命令`);
-        return;
-      }
       if (
-        command.argument ||
+        builtin.argument ||
         session.attachments.length ||
-        session.skills.length ||
         session.images.length
       ) {
         toast.error("该命令不接受附加参数或附件");
         return;
       }
-      if (session.busy && command.name !== "stop") {
+      if (session.busy && builtin.name !== "stop") {
         toast.error("请等待当前任务结束后执行此命令");
         return;
       }
       setCommandBusy(true);
       client.patch(id, { draft: "" });
       try {
-        if (command.name === "compact") {
+        if (builtin.name === "compact") {
           await client.compact(id);
         }
-        if (command.name === "fork") onSelect(await client.fork(id));
-        if (command.name === "new" && !(await onNew(session.thread.cwd)))
+        if (builtin.name === "fork") onSelect(await client.fork(id));
+        if (builtin.name === "new" && !(await onNew(session.thread.cwd)))
           return;
-        if (command.name === "model") setModelOpen(true);
-        if (command.name === "stop") {
+        if (builtin.name === "model") setModelOpen(true);
+        if (builtin.name === "stop") {
           await client.stopAndRestore(id);
         }
         setCommandDismissed(true);
@@ -263,13 +268,18 @@ export function CodexComposer({
   /** 补全命令后保留焦点，第二次 Enter 才执行，与 Pi 菜单交互一致。 */
   const chooseCommand = (command: { name: string; skill?: Skill }) => {
     if (command.skill) {
-      const skill = command.skill;
+      const next = insertSkillMention(
+        session.draft,
+        command.skill,
+        session.skills,
+      );
       client.patch(id, {
-        draft: "",
-        skills: [
-          ...session.skills.filter((selected) => selected.path !== skill.path),
-          skill,
-        ],
+        draft: next.text,
+        skills: next.skills.map((skill) => ({
+          ...command.skill!,
+          name: skill.name,
+          path: skill.path,
+        })),
       });
     } else client.patch(id, { draft: `/${command.name}` });
     setCommandDismissed(true);
@@ -432,15 +442,15 @@ export function CodexComposer({
                 onClick={() => chooseCommand(command)}
                 title={command.skill?.path}
               >
-                <span>/{command.name}</span>
+                <span>{command.skill ? `$${command.name}` : `/${command.name}`}</span>
                 {command.skill && (
                   <span className="shrink-0 text-muted-foreground">
                     {
                       {
-                        user: "全局",
-                        repo: "项目",
-                        system: "系统",
-                        admin: "管理员",
+                        user: "全局技能",
+                        repo: "项目技能",
+                        system: "系统技能",
+                        admin: "管理员技能",
                       }[command.skill.scope]
                     }
                   </span>
@@ -467,40 +477,8 @@ export function CodexComposer({
             )}
           </div>
         )}
-        {(session.attachments.length > 0 ||
-          session.images.length > 0 ||
-          session.skills.length > 0) && (
+        {(session.attachments.length > 0 || session.images.length > 0) && (
           <div className="codex-attachments reader-scrollbar">
-            {session.skills.map((skill) => (
-              <span
-                key={skill.path}
-                className="codex-file-chip"
-                title={skill.path}
-              >
-                <span className="truncate">
-                  {skill.name} ·{" "}
-                  {
-                    {
-                      user: "全局",
-                      repo: "项目",
-                      system: "系统",
-                      admin: "管理员",
-                    }[skill.scope]
-                  }
-                </span>
-                <Tool
-                  icon={Cancel01Icon}
-                  label={`移除技能 ${skill.name}`}
-                  onClick={() =>
-                    client.patch(id, {
-                      skills: session.skills.filter(
-                        (selected) => selected.path !== skill.path,
-                      ),
-                    })
-                  }
-                />
-              </span>
-            ))}
             {session.images.map((url, index) => (
               <div key={url} className="relative">
                 <ZoomableImage
@@ -559,7 +537,7 @@ export function CodexComposer({
             ))}
           </div>
         )}
-        {false && (
+        {session.compactionNotice && (
           <div
             role="status"
             className="mx-auto mb-2 max-w-3xl text-center text-xs text-muted-foreground"
@@ -576,8 +554,9 @@ export function CodexComposer({
               ` · 用时 ${Math.max(0, Math.floor((session.compactionNotice!.finishedAt! - session.compactionNotice!.startedAt) / 1000))} 秒`}
           </div>
         )}
-        <Textarea
-          ref={input}
+        <SkillMentionInput
+          textareaRef={input}
+          skills={session.skills}
           aria-label="发送给 Codex"
           placeholder="描述任务，或输入 / 命令…"
           disabled={disabled}
@@ -587,7 +566,30 @@ export function CodexComposer({
             recall.current = -1;
             setCommandIndex(0);
             setCommandDismissed(false);
-            client.patch(id, { draft: event.target.value });
+            const collapsed = collapseSkillMentions(
+              event.target.value,
+              session.skills,
+            );
+            client.patch(id, {
+              draft: collapsed.text,
+              skills: collapsed.skills.map((skill) => {
+                const previous = session.skills.find(
+                  (item) =>
+                    item.name.toLowerCase() === skill.name.toLowerCase() ||
+                    item.path.replace(/\\/g, "/").toLowerCase() ===
+                      skill.path.replace(/\\/g, "/").toLowerCase(),
+                );
+                return previous
+                  ? { ...previous, name: skill.name, path: skill.path }
+                  : {
+                      name: skill.name,
+                      path: skill.path,
+                      description: "",
+                      scope: "user",
+                      enabled: true,
+                    };
+              }),
+            });
           }}
           onPaste={(event) => {
             const files = [...event.clipboardData.files].filter((file) =>

@@ -8,13 +8,25 @@ export type PiPathAttachment = {
   name: string;
 };
 
+export type PiSkill = {
+  name: string;
+  path: string;
+  description?: string;
+};
+
 export type PiDraft = {
   text: string;
   images: PiImage[];
   files: PiPathAttachment[];
+  skills: PiSkill[];
 };
 
-export const EMPTY_DRAFT: PiDraft = { text: "", images: [], files: [] };
+export const EMPTY_DRAFT: PiDraft = {
+  text: "",
+  images: [],
+  files: [],
+  skills: [],
+};
 
 const IMAGE_EXTENSIONS = new Set([
   "png",
@@ -87,13 +99,19 @@ export function addPathAttachments(
 }
 
 /** 草稿是否还能发送：有正文、图片或路径芯片即可。 */
-export function draftHasPayload(draft: {
-  text: string;
-  images: PiImage[];
-  files?: PiPathAttachment[];
-} | undefined): boolean {
+export function draftHasPayload(
+  draft:
+    | {
+        text: string;
+        images: PiImage[];
+        files?: PiPathAttachment[];
+        skills?: PiSkill[];
+      }
+    | undefined,
+): boolean {
   return Boolean(
-    draft && (draft.text.trim() || draft.images.length || (draft.files?.length ?? 0)),
+    draft &&
+      (draft.text.trim() || draft.images.length || (draft.files?.length ?? 0)),
   );
 }
 

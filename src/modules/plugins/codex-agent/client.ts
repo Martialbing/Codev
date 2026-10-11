@@ -24,6 +24,7 @@ import {
   type Draft,
   type Turn,
 } from "./protocol";
+import { expandSkillMentions } from "@/modules/plugins/skillMention";
 
 export type CodexTurnListener = (sessionId: string, turn: Turn) => void;
 const codexTurnListeners = new Set<CodexTurnListener>();
@@ -1075,14 +1076,23 @@ export class CodexClient {
           effectiveSandbox: sandbox,
         });
       }
+      const catalog =
+        initial.skills.length > 0
+          ? initial.skills
+          : (
+              await this.listSkills(initial.thread.cwd).catch(() => ({
+                skills: [],
+              }))
+            ).skills;
+      const expanded = expandSkillMentions(draft, [
+        ...catalog,
+        ...initial.skills,
+      ]);
       const input: Input[] = [
         ...leadingInputs,
-        { type: "text", text: draft, text_elements: [] },
+        { type: "text", text: expanded, text_elements: [] },
       ];
       input.push(
-        ...initial.skills.map(
-          ({ name, path }): Input => ({ type: "skill", name, path }),
-        ),
         ...initial.images.map((url): Input => ({ type: "image", url })),
       );
       for (const path of attachments) {

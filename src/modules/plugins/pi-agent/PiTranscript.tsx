@@ -28,6 +28,8 @@ import {
   VolumeMute01Icon,
 } from "@hugeicons/core-free-icons";
 import { splitUserAttachmentText } from "./piAttachments";
+import { SkillMentionText } from "@/modules/plugins/SkillMentionText";
+import { expandSkillMentions } from "@/modules/plugins/skillMention";
 import { findLiteralMatches } from "@/modules/editor/lib/textSearch";
 import { ZoomableImage } from "@/modules/reader/ZoomableImage";
 import { MarkdownTable } from "@/modules/markdown/MarkdownTable";
@@ -105,7 +107,11 @@ function UserMessageText({
   const { body, attachments } = splitUserAttachmentText(text);
   return (
     <div className="pi-user-text">
-      {body ? <div className="whitespace-pre-wrap">{body}</div> : null}
+      {body ? (
+        <div className="whitespace-pre-wrap">
+          <SkillMentionText text={body} onOpen={onOpenFile} />
+        </div>
+      ) : null}
       {attachments.length > 0 ? (
         <div
           className={`flex flex-wrap justify-end gap-1 ${body ? "mt-1.5" : ""}`}
@@ -374,7 +380,13 @@ const TranscriptItem = memo(function TranscriptItem({
             size="icon-xs"
             title="复制消息"
             aria-label="复制消息"
-            onClick={() => actions.onCopy?.(item.text)}
+            onClick={() =>
+              actions.onCopy?.(
+                item.role === "user"
+                  ? expandSkillMentions(item.text)
+                  : item.text,
+              )
+            }
           >
             <HugeiconsIcon icon={Copy01Icon} size={13} />
           </Button>

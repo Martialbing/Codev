@@ -120,6 +120,12 @@ import {
   readPathImage,
   withAttachmentPrompt,
 } from "./piAttachments";
+import { listPiAssets } from "./native";
+import {
+  expandSkillMentions,
+  skillShortName,
+  type SkillRef,
+} from "@/modules/plugins/skillMention";
 import { usePiComposerNativeDrop } from "./piComposerDrop";
 import { usePiComposerDropStore } from "./piComposerDropStore";
 import { PiTranscript } from "./PiTranscript";
@@ -143,6 +149,20 @@ import { MAX_PI_VIEWPORTS, placePiSession } from "./viewportLayout";
 import "./pi-agent.css";
 
 type ExtensionRequest = { key: string; event: Record<string, unknown> };
+
+let cachedPiSkills: SkillRef[] | null = null;
+
+/** 发送时把 $name 展开成 [$name](path)，界面不露出路径。 */
+async function loadPiSkillCatalog(): Promise<SkillRef[]> {
+  if (cachedPiSkills) return cachedPiSkills;
+  const assets = await listPiAssets("skills");
+  cachedPiSkills = assets.map((asset) => ({
+    name: skillShortName(asset.name),
+    path: asset.path,
+    ...(asset.summary ? { description: asset.summary } : {}),
+  }));
+  return cachedPiSkills;
+}
 
 /** 插件入口只协调原生会话与 Codev 组件，不接管外部文件树或终端。 */
 export function PiAgentPane({
@@ -718,7 +738,15 @@ export function PiAgentPane({
     const draftKey = targetKey ?? "";
     const draft = drafts[draftKey] ?? EMPTY_DRAFT;
     const activeThread = threads.find((thread) => thread.key === targetKey);
-    const text = withAttachmentPrompt(draft.text, draft.files);
+    const needsSkills =
+      /(?:^|\s)\$(?!\s)/u.test(draft.text) ||
+      /^\/(?:skill:)?[A-Za-z0-9]/u.test(draft.text.trim());
+    const catalog = needsSkills ? await loadPiSkillCatalog() : [];
+    const expanded = expandSkillMentions(draft.text, [
+      ...catalog,
+      ...draft.skills,
+    ]);
+    const text = withAttachmentPrompt(expanded, draft.files);
     if (activeThread?.view.compaction?.status === "running") {
       if (!draftHasPayload(draft)) return;
       client.current!.enqueue(activeThread, text, draft.images, behavior);
@@ -836,6 +864,7 @@ export function PiAgentPane({
                   .join("\n\n"),
                 images: [...draft.images, ...value[runtimeKey].images],
                 files: addPathAttachments(draft.files, value[runtimeKey].files),
+                skills: value[runtimeKey].skills ?? [],
               },
       }));
       setNotice(String(error), runtimeKey);
@@ -886,6 +915,7 @@ export function PiAgentPane({
               text: [...texts, current.text].filter(Boolean).join("\n\n"),
               images: [...images, ...current.images],
               files: current.files,
+              skills: current.skills,
             },
           };
         });
@@ -1595,6 +1625,7 @@ export function PiAgentPane({
                                 .join("\n\n"),
                               images: [...item.images, ...current.images],
                               files: current.files,
+                              skills: current.skills,
                             },
                           };
                         });
