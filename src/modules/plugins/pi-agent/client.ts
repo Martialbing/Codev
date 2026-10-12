@@ -99,6 +99,11 @@ export class PiWorkspaceClient {
   /** 空闲 runtime 回收时间，线程数据仍保留在前端内存中。 */
   private static readonly IDLE_RUNTIME_MS = 20 * 60 * 1000;
   readonly threads = new Map<string, PiThread>();
+  /** 阅读位置跟 client 走，切会话重建 transcript 也不会丢。 */
+  readonly scrollPositions = new Map<
+    string,
+    { top: number; follow: boolean }
+  >();
   private pending = new Map<string, Pending>();
   private opening = new Map<string, Promise<PiThread>>();
   private disposed = false;

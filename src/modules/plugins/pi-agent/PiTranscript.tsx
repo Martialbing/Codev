@@ -62,6 +62,7 @@ import {
   piTurnSnapshots,
   type PiTurnSnapshot,
 } from "./turnDiff";
+import type { PiWorkspaceClient } from "./client";
 
 const STREAMDOWN_CONTROLS = {
   code: { copy: true, download: false },
@@ -699,6 +700,7 @@ export function PiTranscript({
   cwd = "",
   active,
   searchOpen,
+  scrollPositions,
   onCloseSearch,
   onCopy,
   onEdit,
@@ -715,6 +717,7 @@ export function PiTranscript({
   cwd?: string;
   active: boolean;
   searchOpen: boolean;
+  scrollPositions?: PiWorkspaceClient["scrollPositions"];
   onCloseSearch: () => void;
   onLoadOlder?: () => void;
 } & MessageActions) {
@@ -742,9 +745,13 @@ export function PiTranscript({
   );
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
-  const positions = useRef(new Map<string, { top: number; follow: boolean }>());
-  const [following, setFollowing] = useState(true);
+  const fallbackPositions = useRef(
+    new Map<string, { top: number; follow: boolean }>(),
+  );
+  const positions = scrollPositions ?? fallbackPositions.current;
+  const saved = positions.get(threadKey);
+  const follow = useRef(saved?.follow ?? true);
+  const [following, setFollowing] = useState(follow.current);
   const [query, setQuery] = useState("");
   const [hit, setHit] = useState(0);
   const [jump, setJump] = useState(0);
@@ -812,10 +819,29 @@ export function PiTranscript({
     useAnimationFrameWithResizeObserver: true,
     useFlushSync: false,
   });
+  /** 把当前阅读位置写到 client，切会话后仍能恢复。 */
+  const rememberPosition = (node?: HTMLDivElement | null) => {
+    const target = node ?? viewport.current;
+    if (!target) return;
+    if (follow.current) {
+      positions.set(threadKey, { top: 0, follow: true });
+      return;
+    }
+    const collapsed = target.scrollHeight <= target.clientHeight + 32;
+    if (target.scrollTop <= 1 && collapsed) {
+      const previous = positions.get(threadKey);
+      if (previous && !previous.follow) return;
+    }
+    positions.set(threadKey, {
+      top: target.scrollTop,
+      follow: false,
+    });
+  };
   /** 用户主动开始翻阅时暂停滚动跟随。 */
   const pauseFollow = () => {
     follow.current = false;
     setFollowing(false);
+    rememberPosition();
   };
   /** 顶部滚轮也可翻页，内容不足一屏时无需等待 scroll 事件。 */
   const loadEarlier = () => {
@@ -849,25 +875,22 @@ export function PiTranscript({
     follow.current = true;
     setFollowing(true);
     pinBottom();
+    rememberPosition();
   };
   useLayoutEffect(() => {
     const node = viewport.current;
-    const position = positions.current.get(threadKey);
+    const position = positions.get(threadKey);
     pendingOlderRestore.current = null;
     loadingOlder.current = false;
     follow.current = position?.follow ?? true;
     setFollowing(follow.current);
     setQuery("");
     setHit(0);
+    seenSends.current.set(threadKey, sendRevision);
     if (follow.current) pinBottom();
-    else if (node && position) node.scrollTop = position.top;
-    return () => {
-      if (node)
-        positions.current.set(threadKey, {
-          top: follow.current ? 0 : node.scrollTop,
-          follow: follow.current,
-        });
-    };
+    else if (node && position && position.top > 1)
+      node.scrollTop = position.top;
+    return () => rememberPosition(node);
   }, [threadKey]);
   useLayoutEffect(() => {
     if (!sendRevision || seenSends.current.get(threadKey) === sendRevision)
@@ -888,9 +911,21 @@ export function PiTranscript({
       node.scrollTop += transcriptSize - previous;
       pendingOlderRestore.current = null;
       loadingOlder.current = false;
+      rememberPosition(node);
       return;
     }
     if (active && follow.current) pinBottom();
+    else if (active && !follow.current) {
+      const position = positions.get(threadKey);
+      if (
+        position &&
+        !position.follow &&
+        position.top > 1 &&
+        node.scrollTop <= 1 &&
+        node.scrollHeight > position.top
+      )
+        node.scrollTop = position.top;
+    }
   }, [active, view.items, view.historyLoadingMore, transcriptSize]);
   useEffect(() => {
     const node = viewport.current;
@@ -1066,6 +1101,7 @@ export function PiTranscript({
             follow.current = true;
             setFollowing(true);
           }
+          rememberPosition(node);
         }}
       >
         {!blocks.length && (

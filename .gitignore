@@ -48,6 +48,8 @@ docs/**
 !docs/README.md
 !docs/**/README.md
 !docs/**/readme.md
+!docs/Codev-版本发布说明/
+!docs/Codev-版本发布说明/**
 !docs/readme-main.png
 !docs/**/*.png
 !docs/**/*.jpg

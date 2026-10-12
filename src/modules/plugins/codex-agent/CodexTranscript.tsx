@@ -728,13 +728,15 @@ export function CodexTranscript({
   active?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const saved = useRef(client.scrollPositions.get(session.thread.id)).current;
+  const threadId = session.thread.id;
+  const saved = client.scrollPositions.get(threadId);
   const follow = useRef(saved?.follow ?? true);
   const [atBottom, setAtBottom] = useState(follow.current);
   const [hit, setHit] = useState(0);
   const [jump, setJump] = useState(0);
   const appliedJump = useRef(-1);
   const olderHeight = useRef<number | null>(null);
+  const seenSend = useRef(session.sendRevision);
   const query = search.trim();
   const turns = session.thread.turns;
   const editable =
@@ -781,11 +783,30 @@ export function CodexTranscript({
     setAtBottom(true);
     if (turns.length) virtual.scrollToIndex(turns.length - 1, { align: "end" });
     if (root.current) root.current.scrollTop = root.current.scrollHeight;
+    client.scrollPositions.set(threadId, { top: 0, follow: true });
   };
-  /** 主动阅读立即停止追底。 */
+  /** 主动阅读立即停止追底。折叠视口的假 0 不覆盖已记下的位置。 */
+  const remember = (node?: HTMLDivElement | null) => {
+    const el = node ?? root.current;
+    if (!el) return;
+    if (follow.current) {
+      client.scrollPositions.set(threadId, { top: 0, follow: true });
+      return;
+    }
+    const collapsed = el.scrollHeight <= el.clientHeight + 32;
+    if (el.scrollTop <= 1 && collapsed) {
+      const previous = client.scrollPositions.get(threadId);
+      if (previous && !previous.follow) return;
+    }
+    client.scrollPositions.set(threadId, {
+      top: el.scrollTop,
+      follow: false,
+    });
+  };
   const pause = () => {
     follow.current = false;
     setAtBottom(false);
+    remember();
   };
   /** 翻页前记录高度，新增旧历史后恢复视觉锚点。 */
   const older = () => {
@@ -798,13 +819,20 @@ export function CodexTranscript({
     });
   };
   useLayoutEffect(() => {
-    if (saved && !saved.follow && root.current)
-      root.current.scrollTop = saved.top;
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 新的发送完成事件恢复追底。
+    const position = client.scrollPositions.get(threadId);
+    follow.current = position?.follow ?? true;
+    setAtBottom(follow.current);
+    seenSend.current = session.sendRevision;
+    if (!follow.current && position && position.top > 1 && root.current)
+      root.current.scrollTop = position.top;
+    return () => remember(root.current);
+  }, [threadId]);
   useLayoutEffect(() => {
-    if (session.sendRevision) bottom();
-  }, [session.sendRevision]);
+    if (!session.sendRevision || seenSend.current === session.sendRevision)
+      return;
+    seenSend.current = session.sendRevision;
+    bottom();
+  }, [threadId, session.sendRevision]);
   useLayoutEffect(() => {
     if (!active) return;
     if (
@@ -815,6 +843,17 @@ export function CodexTranscript({
       root.current.scrollTop += size - olderHeight.current;
       olderHeight.current = null;
     } else if (follow.current && !query) bottom();
+    else if (!follow.current && root.current) {
+      const position = client.scrollPositions.get(threadId);
+      if (
+        position &&
+        !position.follow &&
+        position.top > 1 &&
+        root.current.scrollTop <= 1 &&
+        root.current.scrollHeight > position.top
+      )
+        root.current.scrollTop = position.top;
+    }
   }, [active, size, turns, session.historyLoading]);
   useEffect(() => {
     setHit(0);
@@ -921,10 +960,7 @@ export function CodexTranscript({
               follow.current = true;
               setAtBottom(true);
             }
-            client.scrollPositions.set(session.thread.id, {
-              top: el.scrollTop,
-              follow: follow.current,
-            });
+            remember(el);
           }}
         >
           {session.historyCursor && (

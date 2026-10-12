@@ -152,21 +152,29 @@ export function CodexComposer({
       cancelled = true;
     };
   }, [client, connected, session.thread.cwd, slashOpen, skillsRevision]);
-  const commands: Array<{ name: string; description: string; skill?: Skill }> =
-    [
-      ...CODEX_COMMANDS,
-      ...skills.map((skill) => ({
+  type SlashCommand = { name: string; description: string; skill?: Skill };
+  const catalog: SlashCommand[] = [
+    ...CODEX_COMMANDS.map(
+      (command): SlashCommand => ({
+        name: command.name,
+        description: command.description,
+      }),
+    ),
+    ...skills.map(
+      (skill): SlashCommand => ({
         name: skill.name,
         description: skill.shortDescription || skill.description,
         skill,
-      })),
-    ].filter((command) => {
-      const query = session.draft.slice(1).toLowerCase();
-      const name = command.name.toLowerCase();
-      if (command.skill)
-        return name.startsWith(query.startsWith("$") ? query.slice(1) : query);
-      return name.startsWith(query);
-    });
+      }),
+    ),
+  ];
+  const commands = catalog.filter((command) => {
+    const query = session.draft.slice(1).toLowerCase();
+    const name = command.name.toLowerCase();
+    if (command.skill)
+      return name.startsWith(query.startsWith("$") ? query.slice(1) : query);
+    return name.startsWith(query);
+  });
   const showCommands = slashOpen;
   useLayoutEffect(() => {
     if (showCommands)
@@ -442,7 +450,9 @@ export function CodexComposer({
                 onClick={() => chooseCommand(command)}
                 title={command.skill?.path}
               >
-                <span>{command.skill ? `$${command.name}` : `/${command.name}`}</span>
+                <span>
+                  {command.skill ? `$${command.name}` : `/${command.name}`}
+                </span>
                 {command.skill && (
                   <span className="shrink-0 text-muted-foreground">
                     {

@@ -16,7 +16,6 @@ pnpm tauri dev --config src-tauri/tauri.portable.conf.json
 
 启动入口自动生成本机的 `src-tauri/.cargo/config.toml`（已 gitignore），同步到另一台电脑后会重新解析，不沿用旧用户名。这个生成文件中的绝对路径仅属于当前机器，不要手写或提交它。复用解析后的缓存，避免重复冷编译；只有全部候选目录不可写或出现编译锁冲突时才停止并报告。不要克隆完整构建树或创建临时缓存绕过编译锁。
 
-
 这条命令使用 `app.teague.codev.portable`，与安装版 `app.teague.codev` 并存。Vite 热更新走 `http://localhost:1420`，安装版不占用该端口。界面改完后由 agent 直接启动这个审核窗口，并写明要看的点和反馈方式；不要只把命令丢给用户自己跑。
 
 核验入口按改动类型选择：
@@ -41,6 +40,7 @@ pnpm tauri dev --config src-tauri/tauri.portable.conf.json
 ## 发版规范
 
 - 未得到用户明确指令，不升版本、不打 tag、不推 GitHub Release。
+- 所有版本声明写入 [docs/Codev-版本发布说明](docs/Codev-版本发布说明)，写完后请人类审核，未审核不得作为对外更新提示。
 - 用户可见的更新说明只写功能变化，禁止写入文件大小、SHA-256 或其他校验编码。
 - GitHub Release 正文、发布说明和对外更新提示都遵守上一条。
 - 校验文件可以留在本地 `artifacts/`，不要贴进更新文案。

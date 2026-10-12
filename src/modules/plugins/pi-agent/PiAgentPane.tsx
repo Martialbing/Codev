@@ -980,7 +980,10 @@ export function PiAgentPane({
       );
       for (const thread of matches) await client.current.close(thread.key);
       await deletePiSession(target.path);
-      for (const thread of matches) client.current.threads.delete(thread.key);
+      for (const thread of matches) {
+        client.current.threads.delete(thread.key);
+        client.current.scrollPositions.delete(thread.key);
+      }
       setThreads(
         [...client.current.threads.values()].map((thread) => ({ ...thread })),
       );
@@ -1507,6 +1510,7 @@ export function PiAgentPane({
                     sendRevision={sendRevisions[draftKey] ?? 0}
                     loading={activeThread?.loadingHistory ?? false}
                     threadKey={draftKey}
+                    scrollPositions={client.current?.scrollPositions}
                     active={
                       active &&
                       (paneIndex < viewportCount ||
