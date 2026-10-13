@@ -11,7 +11,7 @@ export function watchAdd(paths: string[]): void {
   void invoke("fs_watch_add", {
     paths,
     workspace: currentWorkspaceEnv(),
-  }).catch(() => {});
+  }).catch((error) => console.error("File watch registration failed:", error));
 }
 
 export function watchRemove(paths: string[]): void {

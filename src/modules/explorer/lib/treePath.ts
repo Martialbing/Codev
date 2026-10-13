@@ -33,6 +33,22 @@ export function findLoadedTreePath(
   return null;
 }
 
+/** Refresh both an affected directory and its parent listing (rename/delete). */
+export function changedTreeDirectories(
+  nodes: Record<string, { status: string }>,
+  paths: string[],
+  rootPath: string | null,
+): Set<string> {
+  const directories = new Set<string>();
+  for (const path of paths) {
+    const own = closestLoadedTreePath(nodes, path, rootPath);
+    const parent = closestLoadedTreePath(nodes, parentTreePath(path), rootPath);
+    if (own) directories.add(own);
+    if (parent) directories.add(parent);
+  }
+  return directories;
+}
+
 /** 从变更路径向上找到当前树中最近的已加载祖先，含根目录。 */
 export function closestLoadedTreePath(
   nodes: Record<string, { status: string }>,

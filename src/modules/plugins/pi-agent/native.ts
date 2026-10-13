@@ -9,6 +9,7 @@ import type {
   PiPromptFile,
   PiSessionHistory,
   PiClonedSession,
+  PiForkTarget,
   PiModel,
 } from "./types";
 
@@ -143,10 +144,12 @@ export function truncatePiSession(
 export function clonePiSession(
   path: string,
   untilEntryId?: string,
+  target?: PiForkTarget,
 ): Promise<PiClonedSession> {
   return invoke<PiClonedSession>("pi_agent_clone_session", {
     path,
     untilEntryId: untilEntryId || null,
+    target: target ?? null,
   });
 }
 

@@ -1,7 +1,7 @@
 //! Pi 会话 JSONL 摘要、分页历史和文件操作；运行时 IPC 留在父模块。
 use super::paths::{canonical_display, pi_sessions_dir, same_path};
 use super::{
-    list_models_from_file, PiClonedSession, PiListedModel, PiSessionAppendRequest,
+    list_models_from_file, PiClonedSession, PiForkTarget, PiListedModel, PiSessionAppendRequest,
     PiSessionHistory, PiSessionSummary,
 };
 use serde_json::{json, Value};
@@ -524,9 +524,19 @@ pub(super) fn parse_session_history(
 pub(super) fn clone_session_file(
     path: &Path,
     until_entry_id: Option<&str>,
+    target: Option<&PiForkTarget>,
 ) -> Result<PiClonedSession, String> {
     let source = resolve_session_file(path)?;
-    let content = fs::read_to_string(&source).map_err(|error| error.to_string())?;
+    clone_session_from_path(&source, until_entry_id, target)
+}
+
+// Caller validates the path. Keeping file cloning separate allows isolated fixtures.
+fn clone_session_from_path(
+    source: &Path,
+    until_entry_id: Option<&str>,
+    target: Option<&PiForkTarget>,
+) -> Result<PiClonedSession, String> {
+    let content = fs::read_to_string(source).map_err(|error| error.to_string())?;
     let mut lines = content.lines();
     let header_line = lines.next().ok_or("会话文件为空")?;
     let mut header: Value = serde_json::from_str(header_line).map_err(|error| error.to_string())?;
@@ -537,14 +547,16 @@ pub(super) fn clone_session_file(
     let timestamp = utc_timestamp();
     header["id"] = json!(new_id);
     header["timestamp"] = json!(timestamp);
-    header["parentSession"] = json!(canonical_display(&source));
+    header["parentSession"] = json!(canonical_display(source));
     let directory = source.parent().ok_or("会话目录不存在")?;
     let file_stamp = timestamp.replace(':', "-");
     let dest = directory.join(format!("{file_stamp}_{new_id}.jsonl"));
     let rest: Vec<&str> = lines.filter(|line| !line.trim().is_empty()).collect();
-    let output = if let Some(until_id) = until_entry_id.map(str::trim).filter(|id| !id.is_empty()) {
+    let until_id = until_entry_id.map(str::trim).filter(|id| !id.is_empty());
+    let output = if until_id.is_some() || target.is_some() {
         let entries = parse_clone_entries(&rest)?;
-        write_cloned_session(&header, &clone_path_until(&entries, until_id)?)
+        let resolved_id = resolve_fork_entry(&entries, until_id, target)?;
+        write_cloned_session(&header, &clone_path_until(&entries, &resolved_id)?)
     } else {
         let mut output = header.to_string();
         output.push('\n');
@@ -560,6 +572,73 @@ pub(super) fn clone_session_file(
         id: new_id,
         name: None,
     })
+}
+
+fn matches_fork_target(entry: &Value, target: &PiForkTarget) -> bool {
+    if entry.get("type").and_then(Value::as_str) != Some("message") {
+        return false;
+    }
+    let Some(message) = entry.get("message") else {
+        return false;
+    };
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        return false;
+    }
+    if let Some(timestamp) = target.timestamp.as_ref() {
+        if message.get("timestamp").or_else(|| entry.get("timestamp")) != Some(timestamp) {
+            return false;
+        }
+    }
+    let content = &message["content"];
+    if let Some(text) = content.as_str() {
+        return target.content_index == 0 && text == target.text;
+    }
+    let Some(part) = content
+        .as_array()
+        .and_then(|parts| parts.get(target.content_index))
+    else {
+        return false;
+    };
+    part.get("type").and_then(Value::as_str) == Some("text")
+        && part.get("text").and_then(Value::as_str) == Some(target.text.as_str())
+}
+
+/// Resolve UI messages against the same immutable JSONL snapshot used for cloning.
+/// Never guess by text alone: identical replies and alternate branches are common.
+fn resolve_fork_entry(
+    entries: &[Value],
+    until_id: Option<&str>,
+    target: Option<&PiForkTarget>,
+) -> Result<String, String> {
+    if let Some(id) = until_id {
+        let entry = entries
+            .iter()
+            .find(|entry| entry_id(entry) == Some(id))
+            .ok_or("分叉消息已不在当前会话文件中，请重新打开会话后再试")?;
+        if target.is_some_and(|target| !matches_fork_target(entry, target)) {
+            return Err("分叉消息与会话记录不一致，请重新打开会话后再试".into());
+        }
+        return Ok(id.to_string());
+    }
+    let target = target.ok_or("缺少分叉消息的定位信息")?;
+    if !target
+        .timestamp
+        .as_ref()
+        .is_some_and(|time| time.is_number() || time.is_string())
+    {
+        return Err("消息缺少原始定位信息，请重新打开会话后再分叉".into());
+    }
+    let mut matches = entries
+        .iter()
+        .filter(|entry| matches_fork_target(entry, target))
+        .filter_map(entry_id);
+    let id = matches
+        .next()
+        .ok_or("未在会话文件中找到对应消息，请重新打开会话后再试")?;
+    if matches.next().is_some() {
+        return Err("会话文件中有多个匹配节点，无法唯一确定分叉位置，请重新打开会话后选择".into());
+    }
+    Ok(id.to_string())
 }
 
 fn parse_clone_entries(lines: &[&str]) -> Result<Vec<Value>, String> {
@@ -628,7 +707,7 @@ fn branch_to(
             return Err("会话树存在循环".into());
         }
         let Some(&offset) = index.get(&id) else {
-            break;
+            return Err("分叉路径的记录缺失，无法完整恢复该轮历史".into());
         };
         let entry = &entries[offset];
         chain.push(entry.clone());
@@ -885,6 +964,140 @@ pub(super) fn delete_session_file(root: &Path, target: &Path) -> Result<(), Stri
 }
 
 #[cfg(test)]
+mod fork_tests {
+    use super::*;
+
+    fn compacted_entries() -> Vec<Value> {
+        vec![
+            json!({"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"first"}}),
+            json!({"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","timestamp":1700000001000u64,"content":[{"type":"thinking","thinking":"plan"},{"type":"text","text":"same answer"},{"type":"toolCall","id":"call1","name":"read","arguments":{}}]}}),
+            json!({"type":"message","id":"t1","parentId":"a1","message":{"role":"toolResult","toolCallId":"call1","content":"result"}}),
+            json!({"type":"message","id":"final1","parentId":"t1","message":{"role":"assistant","content":[{"type":"text","text":"first turn done"}]}}),
+            json!({"type":"message","id":"u2","parentId":"final1","message":{"role":"user","content":"second"}}),
+            json!({"type":"message","id":"a2","parentId":"u2","message":{"role":"assistant","content":[{"type":"text","text":"second answer"}]}}),
+            json!({"type":"compaction","id":"c1","parentId":"a2","firstKeptEntryId":"u2","summary":"first summary"}),
+            json!({"type":"message","id":"u3","parentId":"c1","message":{"role":"user","content":"third"}}),
+            json!({"type":"message","id":"a3","parentId":"u3","message":{"role":"assistant","timestamp":1700000003000u64,"content":[{"type":"thinking","thinking":"plan"},{"type":"text","text":"same answer"}]}}),
+            json!({"type":"compaction","id":"c2","parentId":"a3","firstKeptEntryId":"u3","summary":"second summary"}),
+            json!({"type":"message","id":"u4","parentId":"c2","message":{"role":"user","content":"fourth"}}),
+            json!({"type":"message","id":"a4","parentId":"u4","message":{"role":"assistant","content":[{"type":"text","text":"fourth answer"}]}}),
+        ]
+    }
+
+    fn target() -> PiForkTarget {
+        PiForkTarget {
+            timestamp: Some(json!(1700000001000u64)),
+            content_index: 1,
+            text: "same answer".into(),
+        }
+    }
+
+    fn ids(entries: &[Value]) -> Vec<&str> {
+        entries.iter().filter_map(entry_id).collect()
+    }
+
+    #[test]
+    fn resolves_pre_compaction_live_reply_and_preserves_the_complete_turn() {
+        let entries = compacted_entries();
+        let id = resolve_fork_entry(&entries, None, Some(&target())).unwrap();
+        assert_eq!(id, "a1");
+        let branch = clone_path_until(&entries, &id).unwrap();
+        assert_eq!(ids(&branch), ["u1", "a1", "t1", "final1"]);
+    }
+
+    #[test]
+    fn native_id_forks_before_between_and_after_compactions_and_on_an_old_branch() {
+        let mut entries = compacted_entries();
+        assert_eq!(
+            ids(&clone_path_until(&entries, "a1").unwrap()),
+            ["u1", "a1", "t1", "final1"]
+        );
+        let between = clone_path_until(&entries, "a3").unwrap();
+        assert!(ids(&between).contains(&"c1"));
+        assert!(!ids(&between).contains(&"u4"));
+        assert_eq!(
+            ids(&clone_path_until(&entries, "a4").unwrap()).last(),
+            Some(&"a4")
+        );
+        // Current leaf follows a different branch; the old entry is still a valid target.
+        entries.push(json!({"type":"message","id":"alternative","parentId":"u1","message":{"role":"assistant","content":"other branch"}}));
+        assert_eq!(
+            ids(&clone_path_until(&entries, "final1").unwrap()),
+            ["u1", "a1", "t1", "final1"]
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_missing_and_mismatched_locators_without_guessing() {
+        let mut entries = compacted_entries();
+        let mut duplicate = entries[1].clone();
+        duplicate["id"] = json!("duplicate");
+        entries.push(duplicate);
+        assert!(resolve_fork_entry(&entries, None, Some(&target()))
+            .unwrap_err()
+            .contains("多个匹配"));
+        // A native entry ID is unambiguous even with an identical message on another branch.
+        assert_eq!(
+            resolve_fork_entry(&entries, Some("a1"), Some(&target())).unwrap(),
+            "a1"
+        );
+        assert!(
+            resolve_fork_entry(&entries, Some("missing"), Some(&target()))
+                .unwrap_err()
+                .contains("不在")
+        );
+        let mut wrong = target();
+        wrong.timestamp = None;
+        assert!(resolve_fork_entry(&entries, None, Some(&wrong))
+            .unwrap_err()
+            .contains("缺少原始"));
+        wrong = target();
+        wrong.content_index = 0;
+        assert!(resolve_fork_entry(&entries, None, Some(&wrong)).is_err());
+        wrong = target();
+        wrong.text = "different answer".into();
+        assert!(resolve_fork_entry(&entries, Some("a1"), Some(&wrong))
+            .unwrap_err()
+            .contains("不一致"));
+        entries[0]["parentId"] = json!("missing-parent");
+        assert!(clone_path_until(&entries, "a1")
+            .unwrap_err()
+            .contains("记录缺失"));
+    }
+
+    #[test]
+    fn cloning_resolves_from_one_snapshot_and_never_changes_source_or_writes_on_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.jsonl");
+        let original =
+            std::iter::once(json!({"type":"session","version":3,"id":"original","cwd":"D:/demo"}))
+                .chain(compacted_entries())
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+        fs::write(&path, &original).unwrap();
+        let mut bad = target();
+        bad.text = "missing".into();
+        assert!(clone_session_from_path(&path, None, Some(&bad)).is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        let cloned = clone_session_from_path(&path, None, Some(&target())).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        let lines = fs::read_to_string(&cloned.path).unwrap();
+        let records: Vec<Value> = lines
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_ne!(records[0]["id"], "original");
+        assert_eq!(records[0]["parentSession"], canonical_display(&path));
+        assert_eq!(ids(&records[1..]), ["u1", "a1", "t1", "final1"]);
+        for pair in records[1..].windows(2) {
+            assert_eq!(pair[1]["parentId"], pair[0]["id"]);
+        }
+    }
+}
+
+#[cfg(test)]
 mod edit_tests {
     use super::*;
 
@@ -973,7 +1186,7 @@ mod edit_tests {
                 + "\n",
         )
         .unwrap();
-        let cloned = clone_session_file(&path, Some("a1"), None).unwrap();
+        let cloned = clone_session_from_path(&path, Some("a1"), None).unwrap();
         let records: Vec<Value> = fs::read_to_string(&cloned.path)
             .unwrap()
             .lines()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  changedTreeDirectories,
   closestLoadedTreePath,
   findLoadedTreePath,
   normalizeTreePath,
@@ -7,6 +8,26 @@ import {
 } from "./treePath";
 
 describe("file tree path alignment", () => {
+  it("refreshes a removed expanded directory's parent and deduplicates file events", () => {
+    const nodes = {
+      "D:/Project": { status: "loaded" },
+      "D:/Project/nested": { status: "loaded" },
+    };
+    expect([
+      ...changedTreeDirectories(nodes, ["D:\\Project\\nested"], "D:/Project"),
+    ]).toEqual(["D:/Project/nested", "D:/Project"]);
+    expect([
+      ...changedTreeDirectories(
+        nodes,
+        ["D:/Project/nested/a.txt", "d:/project/nested/b.txt"],
+        "D:/Project",
+      ),
+    ]).toEqual(["D:/Project/nested"]);
+    expect([
+      ...changedTreeDirectories(nodes, ["D:/other/a.txt"], "D:/Project"),
+    ]).toEqual([]);
+  });
+
   it("normalizes slashes, verbatim prefixes, and Windows case", () => {
     expect(normalizeTreePath("C:\\Users\\79988\\Desktop\\")).toBe(
       "c:/users/79988/desktop",

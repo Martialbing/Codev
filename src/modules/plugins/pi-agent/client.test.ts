@@ -1331,6 +1331,175 @@ describe("Pi RPC workspace", () => {
       client.dispose();
     }
   });
+  it("forks a live reply retained after compaction using its original message locator", async () => {
+    const client = new PiWorkspaceClient(vi.fn(), vi.fn());
+    try {
+      const thread = await client.open("compacted", "D:/one", "source.jsonl");
+      await client.hydrateFromDisk(thread);
+      thread.view = piViewReducer(thread.view, {
+        type: "event",
+        payload: {
+          sessionId: 1,
+          stream: "stdout",
+          event: {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              timestamp: 1700000001000,
+              stopReason: "stop",
+              content: [
+                { type: "thinking", thinking: "plan" },
+                { type: "text", text: "压缩前的回答" },
+              ],
+            },
+          },
+        },
+      });
+      thread.view = piViewReducer(thread.view, {
+        type: "event",
+        payload: {
+          sessionId: 1,
+          stream: "stdout",
+          event: { type: "agent_settled" },
+        },
+      });
+      const until = thread.view.items.find(
+        (item) => item.kind === "message" && item.role === "assistant",
+      );
+      if (!until || until.kind !== "message")
+        throw new Error("Missing assistant");
+      expect(until.id).toMatch(/^message-/);
+      expect(until.timestamp).not.toBe(1700000001000);
+      await client.compact(thread);
+      const items = thread.view.items;
+      vi.mocked(nativeMocks.startPiAgent).mockClear();
+      vi.mocked(nativeMocks.clonePiSession).mockClear();
+      await client.branch(thread, "回溯分叉", until);
+      expect(nativeMocks.clonePiSession).toHaveBeenCalledWith(
+        "source.jsonl",
+        undefined,
+        {
+          timestamp: 1700000001000,
+          contentIndex: 1,
+          text: "压缩前的回答",
+        },
+      );
+      expect(nativeMocks.startPiAgent).not.toHaveBeenCalled();
+      expect(thread.view.items).toBe(items);
+    } finally {
+      client.dispose();
+    }
+  });
+
+  it("forks an older disk page by native entry ID, including split assistant blocks", async () => {
+    const client = new PiWorkspaceClient(vi.fn(), vi.fn());
+    try {
+      const thread = await client.open("paged", "D:/one", "source.jsonl");
+      await client.hydrateFromDisk(thread);
+      vi.mocked(nativeMocks.readPiSession).mockResolvedValueOnce({
+        messages: [
+          {
+            id: "a-older",
+            message: {
+              role: "assistant",
+              timestamp: 1700000001000,
+              content: [
+                { type: "thinking", thinking: "plan" },
+                { type: "text", text: "older answer" },
+              ],
+            },
+          },
+        ],
+        model: null,
+        thinkingLevel: null,
+        sessionName: null,
+        sessionFile: "source.jsonl",
+        oldestOffset: 0,
+        hasMore: false,
+      });
+      await client.loadOlderHistory(thread);
+      const until = thread.view.items.find(
+        (item) => item.kind === "message" && item.role === "assistant",
+      );
+      if (!until || until.kind !== "message")
+        throw new Error("Missing assistant");
+      await client.branch(thread, undefined, until);
+      expect(nativeMocks.clonePiSession).toHaveBeenLastCalledWith(
+        "source.jsonl",
+        "a-older",
+        {
+          timestamp: 1700000001000,
+          contentIndex: 1,
+          text: "older answer",
+        },
+      );
+    } finally {
+      client.dispose();
+    }
+  });
+
+  it("forks RPC history without native IDs and leaves the source intact on an ambiguous match", async () => {
+    const client = new PiWorkspaceClient(vi.fn(), vi.fn());
+    try {
+      const thread = await client.open("rpc-history", "D:/one", "source.jsonl");
+      thread.view = piViewReducer(thread.view, {
+        type: "event",
+        payload: {
+          sessionId: 1,
+          stream: "stdout",
+          event: {
+            type: "response",
+            command: "get_messages",
+            success: true,
+            data: {
+              messages: [
+                {
+                  role: "assistant",
+                  timestamp: 1700000001000,
+                  content: [{ type: "text", text: "same reply" }],
+                },
+              ],
+            },
+          },
+        },
+      });
+      const until = thread.view.items[0];
+      if (until.kind !== "message") throw new Error("Missing assistant");
+      expect(until.id).toBe("history-0:0");
+      await client.branch(thread, undefined, until);
+      expect(nativeMocks.clonePiSession).toHaveBeenLastCalledWith(
+        "source.jsonl",
+        undefined,
+        {
+          timestamp: 1700000001000,
+          contentIndex: 0,
+          text: "same reply",
+        },
+      );
+      const items = thread.view.items;
+      const count = client.threads.size;
+      vi.mocked(nativeMocks.appendPiSession).mockClear();
+      vi.mocked(nativeMocks.clonePiSession).mockRejectedValueOnce(
+        new Error("多个匹配节点"),
+      );
+      await expect(
+        client.branch(thread, "must-not-be-created", until),
+      ).rejects.toThrow("多个匹配节点");
+      expect(thread.view.items).toBe(items);
+      expect(thread.view.sessionFile).toBe("source.jsonl");
+      expect(client.threads.size).toBe(count);
+      expect(nativeMocks.appendPiSession).not.toHaveBeenCalled();
+      const other = await client.open("other", "D:/two", "other.jsonl");
+      vi.mocked(nativeMocks.clonePiSession).mockClear();
+      await expect(client.branch(other, undefined, until)).rejects.toThrow(
+        "分叉消息已变化",
+      );
+      expect(nativeMocks.clonePiSession).not.toHaveBeenCalled();
+    } finally {
+      client.dispose();
+    }
+  });
+
   it("forks by copying the session file without starting a runtime", async () => {
     const native = await import("./native");
     vi.mocked(native.startPiAgent).mockClear();

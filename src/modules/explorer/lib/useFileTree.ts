@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { replacePathPrefix } from "@/lib/pathPrefix";
-import { closestLoadedTreePath } from "./treePath";
+import { workspaceAuthorize } from "@/modules/workspace/native";
+import { changedTreeDirectories } from "./treePath";
 import { listenFsChanged, watchAdd, watchRemove } from "./watch";
 
 export type DirEntry = {
@@ -130,6 +131,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const expandedRef = useRef(expanded);
   const nodesRef = useRef(nodes);
   const watchedRef = useRef<Set<string>>(new Set());
+  const watchesReadyRef = useRef(false);
 
   useEffect(() => {
     showHiddenRef.current = showHidden;
@@ -146,12 +148,12 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const addWatch = useCallback((path: string) => {
     if (watchedRef.current.has(path)) return;
     watchedRef.current.add(path);
-    watchAdd([path]);
+    if (watchesReadyRef.current) watchAdd([path]);
   }, []);
 
   const removeWatch = useCallback((path: string) => {
     if (!watchedRef.current.delete(path)) return;
-    watchRemove([path]);
+    if (watchesReadyRef.current) watchRemove([path]);
   }, []);
 
   const fetchChildren = useCallback(async (path: string) => {
@@ -208,7 +210,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         const toUnwatch: string[] = [];
         for (const d of dead)
           if (watchedRef.current.delete(d)) toUnwatch.push(d);
-        watchRemove(toUnwatch);
+        if (watchesReadyRef.current) watchRemove(toUnwatch);
       }
     } catch (e) {
       setNodes((s) => ({
@@ -244,19 +246,32 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     // changes rapidly (e.g. switching folders in quick succession).
     nodesRef.current = {};
 
-    const toWatch = [rootPath, ...persisted];
+    const toWatch = new Set([rootPath, ...persisted]);
     void fetchChildren(rootPath);
     for (const d of persisted) void fetchChildren(d);
     for (const p of toWatch) watchedRef.current.add(p);
-    watchAdd(toWatch);
+    // Reading a directory does not authorize native watches. Restored and newly
+    // imported roots must register before any expanded-directory subscriptions.
+    let alive = true;
+    void workspaceAuthorize(rootPath)
+      .then(() => {
+        if (!alive) return;
+        watchesReadyRef.current = true;
+        watchAdd([...watchedRef.current]);
+        // Catch changes made while authorization was pending.
+        for (const path of watchedRef.current) void fetchChildren(path);
+      })
+      .catch((error) =>
+        console.error("File tree watch authorization failed:", error),
+      );
 
     return () => {
+      alive = false;
       rememberExpansion(rootPath, expandedRef.current);
       writeStoredExpansion(rootPath, expandedRef.current);
-      if (watchedRef.current.size > 0) {
-        watchRemove([...watchedRef.current]);
-        watchedRef.current.clear();
-      }
+      if (watchesReadyRef.current) watchRemove([...watchedRef.current]);
+      watchesReadyRef.current = false;
+      watchedRef.current.clear();
     };
   }, [rootPath, fetchChildren]);
 
@@ -264,13 +279,13 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     let alive = true;
     let unlisten: (() => void) | undefined;
     void listenFsChanged((paths) => {
-      const current = nodesRef.current;
-      const dirs = new Set<string>();
-      for (const p of paths) {
-        const loaded = closestLoadedTreePath(current, p, rootPath);
-        if (loaded) dirs.add(loaded);
+      for (const d of changedTreeDirectories(
+        nodesRef.current,
+        paths,
+        rootPath,
+      )) {
+        void fetchChildren(d);
       }
-      for (const d of dirs) void fetchChildren(d);
     }).then((un) => {
       if (alive) unlisten = un;
       else un();
@@ -429,8 +444,10 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       previousWatches.map((path) => replacePathPrefix(path, from, to)),
     );
     watchedRef.current = nextWatches;
-    watchRemove(previousWatches);
-    watchAdd([...nextWatches]);
+    if (watchesReadyRef.current) {
+      watchRemove(previousWatches);
+      watchAdd([...nextWatches]);
+    }
 
     setPendingCreate((pending) =>
       pending

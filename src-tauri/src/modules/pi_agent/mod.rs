@@ -119,6 +119,14 @@ pub struct PiSessionAppendRequest {
     thinking_level: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiForkTarget {
+    timestamp: Option<Value>,
+    content_index: usize,
+    text: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PiClonedSession {
@@ -792,10 +800,12 @@ pub fn pi_agent_read_session(
 pub fn pi_agent_clone_session(
     path: String,
     until_entry_id: Option<String>,
+    target: Option<PiForkTarget>,
 ) -> Result<PiClonedSession, String> {
     clone_session_file(
         Path::new(&path),
         until_entry_id.as_deref().filter(|id| !id.trim().is_empty()),
+        target.as_ref(),
     )
 }
 
@@ -1017,7 +1027,7 @@ mod tests {
         std::env::set_var("PI_CODING_AGENT_DIR", directory.path());
         let history = parse_session_history(&path, None, 20).expect("history");
         let older = parse_session_history(&path, Some(history.oldest_offset), 20).expect("older");
-        let cloned = clone_session_file(&path, None).expect("clone");
+        let cloned = clone_session_file(&path, None, None).expect("clone");
         append_session_entry(PiSessionAppendRequest {
             path: cloned.path.clone(),
             kind: "session_info".into(),

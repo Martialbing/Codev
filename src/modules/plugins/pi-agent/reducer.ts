@@ -169,11 +169,21 @@ function stopReasonValue(value: unknown): PiStopReason | undefined {
 }
 
 /** 按 Pi contentIndex 保留每一段正文、思考和工具的原始顺序。 */
-function normalizeMessage(message: unknown, id: string): PiTranscriptItem[] {
+function normalizeMessage(
+  message: unknown,
+  id: string,
+  entryId?: string,
+): PiTranscriptItem[] {
   const raw = objectValue(message);
   const value = objectValue(raw?.message) ?? raw;
   if (!value) return [];
   const timestamp = messageTimestamp(value, raw);
+  const originalTimestamp = value.timestamp ?? raw?.timestamp;
+  const sourceTimestamp =
+    typeof originalTimestamp === "number" ||
+    typeof originalTimestamp === "string"
+      ? originalTimestamp
+      : undefined;
   if (value.role === "toolResult")
     return [
       {
@@ -224,6 +234,9 @@ function normalizeMessage(message: unknown, id: string): PiTranscriptItem[] {
       return [
         {
           id: `${id}:${index}`,
+          entryId,
+          sourceTimestamp,
+          contentIndex: index,
           kind: "message",
           role,
           text: typeof part.text === "string" ? part.text : "",
@@ -718,7 +731,8 @@ function hydrateHistory(
           : typeof nested?.id === "string"
             ? nested.id
             : `history-${index}`;
-      return mergeItems(next, normalizeMessage(message, id));
+      const entryId = typeof record?.id === "string" ? record.id : undefined;
+      return mergeItems(next, normalizeMessage(message, id, entryId));
     },
     [],
   );

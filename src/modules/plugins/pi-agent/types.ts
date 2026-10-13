@@ -70,7 +70,18 @@ export type PiModel = {
 
 export type PiStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
+export type PiForkTarget = {
+  /** Pi 原始消息时间，不使用界面运行耗时修正后的 timestamp。 */
+  timestamp?: number | string;
+  contentIndex: number;
+  text: string;
+};
+
 export type PiMessageItem = {
+  /** JSONL entry 身份独立于 React/虚拟列表展示 ID。 */
+  entryId?: string;
+  sourceTimestamp?: number | string;
+  contentIndex?: number;
   activityOrder?: number;
   timestamp?: number;
   id: string;

@@ -84,18 +84,6 @@ function runtimeThreadKey(key: string, path?: string | null): string {
     .toLowerCase();
 }
 
-function forkEntryId(id: string): string {
-  const entryId = id.split(":")[0];
-  if (
-    !entryId ||
-    entryId.startsWith("local-user-") ||
-    entryId.startsWith("history-") ||
-    entryId.startsWith("message-")
-  )
-    throw new Error("找不到分叉位置，请等本轮写入后再试");
-  return entryId;
-}
-
 /** 管理 Pi 原生进程与请求关联，切换界面不会停止其他线程。 */
 export class PiWorkspaceClient {
   /** 空闲 runtime 回收时间，线程数据仍保留在前端内存中。 */
@@ -1441,8 +1429,21 @@ export class PiWorkspaceClient {
       );
     const source = thread.view.sessionFile;
     if (!source) throw new Error("当前线程尚未写入会话文件");
+    if (
+      until &&
+      (until.role !== "assistant" ||
+        until.streaming ||
+        !thread.view.items.some(
+          (item) => item.id === until.id && item === until,
+        ))
+    )
+      throw new Error("分叉消息已变化，请从当前会话重新选择");
     const cloned = until
-      ? await clonePiSession(source, forkEntryId(until.id))
+      ? await clonePiSession(source, until.entryId, {
+          timestamp: until.sourceTimestamp,
+          contentIndex: until.contentIndex ?? Number(until.id.split(":").pop()),
+          text: until.text,
+        })
       : await clonePiSession(source);
     if (name) {
       await appendPiSession({

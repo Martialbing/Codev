@@ -195,8 +195,19 @@ fn add_paths(inner: &mut WatchInner, paths: Vec<PathBuf>) {
     }
 }
 
+fn registered_watch_key(refcounts: &HashMap<PathBuf, usize>, path: &Path) -> Option<PathBuf> {
+    if refcounts.contains_key(path) {
+        return Some(path.to_path_buf());
+    }
+    // Deleted directories cannot canonicalize. Match the non-verbatim spelling
+    // against the original canonical key so stale counts never block rewatching.
+    let display = to_canon(path);
+    refcounts.keys().find(|key| to_canon(key) == display).cloned()
+}
+
 fn remove_paths(inner: &mut WatchInner, paths: Vec<PathBuf>) {
-    for key in paths {
+    for path in paths {
+        let Some(key) = registered_watch_key(&inner.refcounts, &path) else { continue; };
         let current = inner.refcounts.get(&key).copied().unwrap_or(0);
         if current <= 1 {
             inner.refcounts.remove(&key);
@@ -273,6 +284,27 @@ pub fn fs_watch_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleted_directory_releases_canonical_watch_and_can_be_watched_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let child = directory.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let canonical = std::fs::canonicalize(&child).unwrap();
+        let watcher = RecommendedWatcher::new(|_: notify::Result<Event>| {}, Config::default()).unwrap();
+        let mut inner = WatchInner { watcher, refcounts: HashMap::new() };
+        add_paths(&mut inner, vec![canonical.clone(), canonical.clone()]);
+        assert_eq!(inner.refcounts.get(&canonical), Some(&2));
+        std::fs::remove_dir(&child).unwrap();
+        let fallback = PathBuf::from(to_canon(&child));
+        remove_paths(&mut inner, vec![fallback.clone()]);
+        assert_eq!(inner.refcounts.get(&canonical), Some(&1));
+        remove_paths(&mut inner, vec![fallback]);
+        assert!(inner.refcounts.is_empty());
+        std::fs::create_dir(&child).unwrap();
+        add_paths(&mut inner, vec![std::fs::canonicalize(&child).unwrap()]);
+        assert_eq!(inner.refcounts.get(&canonical), Some(&1));
+    }
 
     #[test]
     fn skip_filter_matches_basename() {
