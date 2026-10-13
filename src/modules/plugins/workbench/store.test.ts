@@ -49,7 +49,9 @@ describe("workbench slots", () => {
     useWorkbench.setState({ slots: [source("1"), second] });
     useWorkbench.getState().release("terminal", "1");
     expect(useWorkbench.getState().slots).toEqual([null, second]);
-    useWorkbench.getState().remove(0);
+    useWorkbench.getState().clear(0);
     expect(useWorkbench.getState().slots).toEqual([null, second]);
+    useWorkbench.getState().close(0);
+    expect(useWorkbench.getState().slots).toEqual([second]);
   });
 });

@@ -9,8 +9,6 @@ import {
   GridViewIcon,
   Maximize01Icon,
   Minimize01Icon,
-  MinusSignIcon,
-  PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,6 +143,14 @@ import { onPiAgentSettled } from "./client";
 import { speakFinalIfEnabled } from "@/modules/plugins/pi-agent/voice/output";
 import { WorkbenchContent } from "../workbench/WorkbenchContent";
 import { useWorkbench } from "../workbench/store";
+import { ViewportCount, ViewportSlotActions } from "@/components/ViewportCount";
+import {
+  clearViewportSlot,
+  closeViewportSlot,
+  focusAfterViewportChange,
+  growViewportSlots,
+  shrinkViewportSlots,
+} from "@/lib/viewportSlots";
 import { MAX_PI_VIEWPORTS, placePiSession } from "./viewportLayout";
 import "./pi-agent.css";
 
@@ -224,21 +230,37 @@ export function PiAgentPane({
       toast.info("最多支持 6 个 Pi 会话视口，可替换现有视口中的会话。");
       return;
     }
-    setViewportKeys((slots) => [...slots, null]);
+    setViewportKeys((slots) =>
+      growViewportSlots(slots, null, MAX_PI_VIEWPORTS),
+    );
   };
   /** 清空单个视口内容，格子数量不变。 */
+  const clearViewport = (index: number) => {
+    setMaximizedViewport(null);
+    setViewportKeys((slots) => clearViewportSlot(slots, index, null));
+  };
+  /** 关闭当前格子并重排剩余格子，可减到 1。 */
   const closeViewport = (index: number) => {
     setMaximizedViewport(null);
-    setViewportKeys((slots) =>
-      slots.map((key, position) => (position === index ? null : key)),
-    );
+    setViewportKeys((slots) => {
+      const next = closeViewportSlot(slots, index, null);
+      setActiveViewport((current) =>
+        focusAfterViewportChange(current, index, next.length),
+      );
+      return next;
+    });
   };
   /** 减少最后一个视口，其中的会话只退出展示。 */
   const removeViewport = () => {
-    if (viewportKeys.length <= 2) return;
+    if (viewportKeys.length <= 1) return;
     setMaximizedViewport(null);
-    setViewportKeys((slots) => slots.slice(0, -1));
-    setActiveViewport((index) => Math.min(index, viewportKeys.length - 2));
+    setViewportKeys((slots) => {
+      const next = shrinkViewportSlots(slots);
+      setActiveViewport((current) =>
+        Math.min(current, Math.max(0, next.length - 1)),
+      );
+      return next;
+    });
   };
   /** 根据指针命中读取视口序号，供侧栏 pointer 拖拽使用。 */
   const viewportAtPoint = (x: number, y: number): number | null => {
@@ -625,13 +647,9 @@ export function PiAgentPane({
     setThreads([...client.current!.threads.values()]);
     return target;
   };
-  /** 切换项目时解除其他项目的线程选择，让首次发送绑定新项目。 */
+  /** 切换项目只刷新侧栏列表，不改已打开视口里的会话。 */
   const selectProject = async (cwd: string) => {
     setProject(cwd);
-    const selectedCwd =
-      activeThread?.cwd ?? rows.find((row) => row.key === selected)?.cwd;
-    if (selected && pathKey(selectedCwd ?? "") !== pathKey(cwd))
-      activateThread(null);
     await refreshSessions(cwd);
   };
   /** 点击与工作台收集共用历史准备，不改变原插件的选中态。 */
@@ -1144,33 +1162,14 @@ export function PiAgentPane({
             <HugeiconsIcon icon={GridViewIcon} size={14} />
           </Button>
           {viewportKeys.length > 0 && (
-            <div className="flex shrink-0 items-center">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-5"
-                aria-label="减少 Pi 视口"
-                title="减少最后一个视口"
-                disabled={viewportKeys.length <= 2}
-                onClick={removeViewport}
-              >
-                <HugeiconsIcon icon={MinusSignIcon} size={12} />
-              </Button>
-              <span className="w-6 text-center text-[10px] leading-none text-muted-foreground">
-                {viewportKeys.length}/6
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-5"
-                aria-label="增加 Pi 视口"
-                title="增加 Pi 视口"
-                disabled={viewportKeys.length >= MAX_PI_VIEWPORTS}
-                onClick={addViewport}
-              >
-                <HugeiconsIcon icon={PlusSignIcon} size={12} />
-              </Button>
-            </div>
+            <ViewportCount
+              count={viewportKeys.length}
+              max={MAX_PI_VIEWPORTS}
+              minusLabel="减少 Pi 视口"
+              plusLabel="增加 Pi 视口"
+              onMinus={removeViewport}
+              onPlus={addViewport}
+            />
           )}
           <Button
             variant="ghost"
@@ -1361,14 +1360,11 @@ export function PiAgentPane({
                         size={12}
                       />
                     </button>
-                    <button
-                      type="button"
-                      className="size-5 shrink-0 rounded hover:bg-accent"
-                      aria-label={`关闭视口 ${paneIndex + 1}`}
-                      onClick={() => closeViewport(paneIndex)}
-                    >
-                      ×
-                    </button>
+                    <ViewportSlotActions
+                      onClear={() => clearViewport(paneIndex)}
+                      onClose={() => closeViewport(paneIndex)}
+                      closeDisabled={viewportKeys.length <= 1}
+                    />
                   </div>
                   <button
                     type="button"
@@ -1493,15 +1489,11 @@ export function PiAgentPane({
                           size={12}
                         />
                       </button>
-                      <button
-                        type="button"
-                        aria-label={`关闭视口 ${paneIndex + 1}`}
-                        title="关闭视口，任务继续运行"
-                        onClick={() => closeViewport(paneIndex)}
-                        className="size-5 shrink-0 rounded hover:bg-accent"
-                      >
-                        ×
-                      </button>
+                      <ViewportSlotActions
+                        onClear={() => clearViewport(paneIndex)}
+                        onClose={() => closeViewport(paneIndex)}
+                        closeDisabled={viewportKeys.length <= 1}
+                      />
                     </div>
                   )}
                   <PiTranscript

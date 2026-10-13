@@ -7,9 +7,7 @@ import {
 } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Cancel01Icon,
   GridViewIcon,
-  MinusSignIcon,
   PlusSignIcon,
   Maximize01Icon,
   Minimize01Icon,
@@ -18,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { ResizableViewportGrid } from "@/components/ResizableViewportGrid";
 import { BrowserPane } from "../browser/BrowserPane";
 import { sourceKey, useWorkbench, type WorkbenchSource } from "./store";
+import { ViewportCount, ViewportSlotActions } from "@/components/ViewportCount";
+import { MAX_VIEWPORTS, shrinkViewportSlots } from "@/lib/viewportSlots";
 
 function SlotBody({
   source,
@@ -41,7 +41,7 @@ function SlotBody({
 }
 
 export function WorkbenchPane({ visible }: { visible: boolean }) {
-  const { slots, append, remove, swap } = useWorkbench();
+  const { slots, append, clear, close, swap } = useWorkbench();
   const [width, setWidth] = useState(0);
   const [maximized, setMaximized] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -126,37 +126,18 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
           <HugeiconsIcon icon={PlusSignIcon} size={13} />
           网页
         </Button>
-        <div className="flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-5"
-            title="减少最后一个视口"
-            aria-label="减少视口"
-            disabled={slots.length <= 1}
-            onClick={() => {
-              if (slots.length <= 1) return;
-              setMaximized(null);
-              useWorkbench.setState({ slots: slots.slice(0, -1) });
-            }}
-          >
-            <HugeiconsIcon icon={MinusSignIcon} size={12} />
-          </Button>
-          <span className="w-6 text-center text-[10px] leading-none text-muted-foreground">
-            {slots.length}/6
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="size-5"
-            title="增加空视口"
-            aria-label="增加空视口"
-            disabled={slots.length >= 6}
-            onClick={append}
-          >
-            <HugeiconsIcon icon={PlusSignIcon} size={12} />
-          </Button>
-        </div>
+        <ViewportCount
+          count={Math.max(1, slots.length)}
+          max={MAX_VIEWPORTS}
+          minusLabel="减少视口"
+          plusLabel="增加空视口"
+          onMinus={() => {
+            if (slots.length <= 1) return;
+            setMaximized(null);
+            useWorkbench.setState({ slots: shrinkViewportSlots(slots) });
+          }}
+          onPlus={append}
+        />
       </header>
       <div data-workbench-body="" className="min-h-0 flex-1 overflow-hidden">
         <ResizableViewportGrid
@@ -210,18 +191,17 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
                     size={12}
                   />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="移除视口，保留会话"
-                  aria-label="移除视口"
-                  onClick={() => {
+                <ViewportSlotActions
+                  onClear={() => {
                     setMaximized(null);
-                    remove(index);
+                    clear(index);
                   }}
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={12} />
-                </Button>
+                  onClose={() => {
+                    setMaximized(null);
+                    close(index);
+                  }}
+                  closeDisabled={slots.length <= 1}
+                />
               </header>
               {source?.kind === "browser" ? (
                 <div className="min-h-0 flex-1">

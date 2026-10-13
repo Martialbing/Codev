@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { usePluginStore } from "../store";
+import {
+  MAX_VIEWPORTS,
+  clearViewportSlot,
+  closeViewportSlot,
+  growViewportSlots,
+} from "@/lib/viewportSlots";
 
 function openWorkbench() {
   if (typeof window === "undefined") return;
@@ -21,6 +27,8 @@ type State = {
   moving: boolean;
   targets: Record<string, HTMLElement>;
   add: (source: WorkbenchSource) => boolean;
+  clear: (index: number) => void;
+  close: (index: number) => void;
   remove: (index: number) => void;
   swap: (from: number, to: number) => void;
   append: () => void;
@@ -51,10 +59,9 @@ export const useWorkbench = create<State>((set, get) => ({
     if (source.kind !== "browser") openWorkbench();
     return true;
   },
-  remove: (index) =>
-    set({
-      slots: get().slots.map((source, i) => (i === index ? null : source)),
-    }),
+  clear: (index) => set({ slots: clearViewportSlot(get().slots, index, null) }),
+  close: (index) => set({ slots: closeViewportSlot(get().slots, index, null) }),
+  remove: (index) => get().clear(index),
   swap: (from, to) => {
     const slots = [...get().slots];
     if (
@@ -69,8 +76,9 @@ export const useWorkbench = create<State>((set, get) => ({
     set({ slots });
   },
   append: () => {
-    if (get().slots.length >= 6) toast.info("工作台最多支持 6 个视口");
-    else set({ slots: [...get().slots, null] });
+    if (get().slots.length >= MAX_VIEWPORTS)
+      toast.info("工作台最多支持 6 个视口");
+    else set({ slots: growViewportSlots(get().slots, null, MAX_VIEWPORTS) });
   },
   release: (kind, id) => {
     const slots = get().slots;

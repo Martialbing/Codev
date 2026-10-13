@@ -15,8 +15,6 @@ import {
   Cancel01Icon,
   Maximize01Icon,
   Minimize01Icon,
-  MinusSignIcon,
-  PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +38,15 @@ import { watchHistory } from "./historyWatch";
 import { WorkbenchContent } from "../workbench/WorkbenchContent";
 import { useWorkbench } from "../workbench/store";
 import { ResizableViewportGrid } from "@/components/ResizableViewportGrid";
+import { ViewportCount, ViewportSlotActions } from "@/components/ViewportCount";
+import {
+  MAX_VIEWPORTS,
+  clearViewportSlot,
+  closeViewportSlot,
+  focusAfterViewportChange,
+  growViewportSlots,
+  shrinkViewportSlots,
+} from "@/lib/viewportSlots";
 
 /** 只恢复视口数量；启动不读取旧会话，等待用户选择。 */
 function readSlots(): (string | null)[] {
@@ -136,6 +143,7 @@ function Workspace({
     });
   }, [client, active]);
   const [slots, setSlots] = useState(readSlots);
+  const [split, setSplit] = useState(() => readSlots().length > 1);
   const [focused, setFocused] = useState(0);
   const [maximizedViewport, setMaximizedViewport] = useState<number | null>(
     null,
@@ -162,13 +170,13 @@ function Workspace({
   ];
   const selected = slots[focused] ?? null;
   const current = selected ? state.sessions[selected] : undefined;
-  const multi = slots.length > 1;
+  const multi = split;
   const viewportColumns =
     viewportWidth >= 1200 && slots.length > 1
       ? Math.min(3, slots.length)
       : slots.length > 4
         ? 3
-        : multi
+        : slots.length > 1
           ? 2
           : 1;
   const viewportRows = Math.ceil(slots.length / viewportColumns);
@@ -302,13 +310,24 @@ function Workspace({
     return false;
   };
   /** 清空单个视口内容，格子数量不变。 */
+  const clear = (index: number) => {
+    setMaximizedViewport(null);
+    const closing = slots[index];
+    if (closing) client.discardDraft(closing);
+    setSlots((currentSlots) => clearViewportSlot(currentSlots, index, null));
+  };
+  /** 关闭当前格子并重排剩余格子，可减到 1。 */
   const close = (index: number) => {
     setMaximizedViewport(null);
     const closing = slots[index];
     if (closing) client.discardDraft(closing);
-    setSlots((currentSlots) =>
-      currentSlots.map((id, i) => (i === index ? null : id)),
-    );
+    setSlots((currentSlots) => {
+      const next = closeViewportSlot(currentSlots, index, null);
+      setFocused((current) =>
+        focusAfterViewportChange(current, index, next.length),
+      );
+      return next;
+    });
   };
   return (
     <section
@@ -348,54 +367,46 @@ function Workspace({
               disabled={state.switching}
               onClick={() => {
                 setMaximizedViewport(null);
-                setSlots(multi ? [selected] : [selected, null]);
+                if (split) {
+                  setSplit(false);
+                  setSlots([selected]);
+                } else {
+                  setSplit(true);
+                  setSlots(slots.length >= 2 ? slots : [selected, null]);
+                }
                 setFocused(0);
               }}
             >
               <HugeiconsIcon icon={GridViewIcon} size={14} />
             </Button>
             {multi && (
-              <div className="flex shrink-0 items-center">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-5"
-                  aria-label="减少视口"
-                  title="减少最后一个视口"
-                  disabled={slots.length <= 2}
-                  onClick={() => {
-                    if (slots.length <= 2) return;
-                    setMaximizedViewport(null);
-                    setSlots(slots.slice(0, -1));
+              <ViewportCount
+                count={slots.length}
+                max={MAX_VIEWPORTS}
+                minusLabel="减少视口"
+                plusLabel="增加 Codex 视口"
+                onMinus={() => {
+                  if (slots.length <= 1) return;
+                  setMaximizedViewport(null);
+                  setSlots((currentSlots) => {
+                    const next = shrinkViewportSlots(currentSlots);
                     setFocused((current) =>
-                      Math.min(current, slots.length - 2),
+                      Math.min(current, Math.max(0, next.length - 1)),
                     );
-                  }}
-                >
-                  <HugeiconsIcon icon={MinusSignIcon} size={12} />
-                </Button>
-                <span className="w-6 text-center text-[10px] leading-none text-muted-foreground">
-                  {slots.length}/6
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-5"
-                  aria-label="增加视口"
-                  title="增加 Codex 视口"
-                  disabled={slots.length >= 6}
-                  onClick={() => {
-                    if (slots.length >= 6) {
-                      toast.info("最多支持 6 个视口");
-                      return;
-                    }
-                    setSlots([...slots, null]);
-                    setFocused(slots.length);
-                  }}
-                >
-                  <HugeiconsIcon icon={PlusSignIcon} size={12} />
-                </Button>
-              </div>
+                    return next;
+                  });
+                }}
+                onPlus={() => {
+                  if (slots.length >= MAX_VIEWPORTS) {
+                    toast.info("最多支持 6 个视口");
+                    return;
+                  }
+                  setSlots((currentSlots) =>
+                    growViewportSlots(currentSlots, null, MAX_VIEWPORTS),
+                  );
+                  setFocused(slots.length);
+                }}
+              />
             )}
             <Button
               variant="ghost"
@@ -503,10 +514,10 @@ function Workspace({
                               )
                             }
                           />
-                          <Tool
-                            icon={Cancel01Icon}
-                            label="关闭视口"
-                            onClick={() => close(index)}
+                          <ViewportSlotActions
+                            onClear={() => clear(index)}
+                            onClose={() => close(index)}
+                            closeDisabled={slots.length <= 1}
                           />
                         </header>
                       )}
@@ -588,10 +599,10 @@ function Workspace({
                             )
                           }
                         />
-                        <Tool
-                          icon={Cancel01Icon}
-                          label="关闭视口"
-                          onClick={() => close(index)}
+                        <ViewportSlotActions
+                          onClear={() => clear(index)}
+                          onClose={() => close(index)}
+                          closeDisabled={slots.length <= 1}
                         />
                       </div>
                     )}

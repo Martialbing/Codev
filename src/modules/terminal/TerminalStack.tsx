@@ -9,6 +9,7 @@ import {
   Maximize01Icon,
   Minimize01Icon,
 } from "@hugeicons/core-free-icons";
+import { ViewportSlotActions } from "@/components/ViewportCount";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { selectLiveTerminals } from "./lib/liveTerminals";
 import { leafIds, findLeafCwd } from "./lib/panes";
@@ -25,6 +26,7 @@ type Props = {
   dropViewport: number | null;
   visible?: boolean;
   onSelect: (id: number) => void;
+  onClearViewport: (index: number) => void;
   onCloseViewport: (index: number) => void;
   onRename: (id: number, title: string) => void;
   onDuplicate: (cwd?: string) => void;
@@ -54,6 +56,7 @@ export function TerminalStack({
   dropViewport,
   visible = true,
   onSelect,
+  onClearViewport,
   onCloseViewport,
   onRename,
   onDuplicate,
@@ -189,7 +192,10 @@ export function TerminalStack({
               >
                 {rename?.id === t.id ? (
                   <input
-                    autoFocus
+                    ref={(node) => {
+                      node?.focus();
+                      node?.select();
+                    }}
                     data-terminal-title-input=""
                     aria-label="重命名终端视口"
                     className="h-5 min-w-0 flex-1 rounded-sm border border-border bg-background px-1 text-[11px] outline-none focus:border-primary/60"
@@ -268,17 +274,23 @@ export function TerminalStack({
                     />
                   </button>
                 )}
-                <button
-                  type="button"
-                  aria-label={multi ? "关闭视口" : "关闭终端"}
-                  title={multi ? "关闭视口" : "关闭终端"}
-                  className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() =>
-                    multi ? onCloseViewport(position) : onClose(t.id)
-                  }
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={12} />
-                </button>
+                {multi ? (
+                  <ViewportSlotActions
+                    onClear={() => onClearViewport(position)}
+                    onClose={() => onCloseViewport(position)}
+                    closeDisabled={viewSlots.length <= 1}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    aria-label="关闭终端"
+                    title="关闭终端"
+                    className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => onClose(t.id)}
+                  >
+                    <HugeiconsIcon icon={Cancel01Icon} size={12} />
+                  </button>
+                )}
               </div>
             )}
             <div className="min-h-0 flex-1">
@@ -337,15 +349,11 @@ export function TerminalStack({
                     size={12}
                   />
                 </button>
-                <button
-                  type="button"
-                  aria-label={`关闭视口 ${index + 1}`}
-                  title="关闭视口"
-                  className="flex size-5 shrink-0 items-center justify-center rounded-sm hover:bg-muted hover:text-foreground"
-                  onClick={() => onCloseViewport(index)}
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={12} />
-                </button>
+                <ViewportSlotActions
+                  onClear={() => onClearViewport(index)}
+                  onClose={() => onCloseViewport(index)}
+                  closeDisabled={viewSlots.length <= 1}
+                />
               </div>
               <div className="grid min-h-0 flex-1 place-items-center px-3 text-center text-xs text-muted-foreground">
                 从右侧拖入终端，或点击右侧终端填入

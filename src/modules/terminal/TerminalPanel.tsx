@@ -17,9 +17,8 @@ import { labelFor, TabIcon } from "@/modules/tabs";
 import type { SearchAddon } from "@xterm/addon-search";
 import {
   Cancel01Icon,
-  MinusSignIcon,
-  PlusSignIcon,
   GridViewIcon,
+  PlusSignIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
@@ -33,6 +32,13 @@ import {
   terminalGrid,
   MAX_TERMINAL_VIEWS,
 } from "./lib/terminalGrid";
+import { ViewportCount } from "@/components/ViewportCount";
+import {
+  clearViewportSlot,
+  closeViewportSlot,
+  growViewportSlots,
+  shrinkViewportSlots,
+} from "@/lib/viewportSlots";
 import { usePluginStore } from "@/modules/plugins/store";
 import { useWorkbench } from "@/modules/plugins/workbench/store";
 import { toast } from "sonner";
@@ -129,7 +135,7 @@ export function TerminalPanel({
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [viewSlots, setViewSlots] = useState<(number | null)[]>([]);
   const [dropViewport, setDropViewport] = useState<number | null>(null);
-  const multi = viewSlots.length > 1;
+  const multi = viewSlots.length > 0;
   const displaySlots = multi
     ? viewSlots
     : [
@@ -169,17 +175,20 @@ export function TerminalPanel({
   /** 切换多视口并保持新视口为空，后续由点击或拖拽填入终端。 */
   const toggleViewports = () => {
     setViewSlots((slots) =>
-      slots.length > 1
+      slots.length > 0
         ? []
         : [tabs.some((tab) => tab.id === activeId) ? activeId : null, null],
     );
   };
 
   /** 清空单个视口内容，格子数量不变。 */
+  const clearViewport = (index: number) => {
+    setViewSlots((slots) => clearViewportSlot(slots, index, null));
+    setDropViewport(null);
+  };
+  /** 关闭当前格子并重排剩余格子，可减到 1。 */
   const closeViewport = (index: number) => {
-    setViewSlots((slots) =>
-      slots.map((id, position) => (position === index ? null : id)),
-    );
+    setViewSlots((slots) => closeViewportSlot(slots, index, null));
     setDropViewport(null);
   };
 
@@ -328,6 +337,7 @@ export function TerminalPanel({
               dropViewport={dropViewport}
               visible={visible}
               onSelect={selectTerminal}
+              onClearViewport={clearViewport}
               onCloseViewport={closeViewport}
               onRename={onRename}
               onDuplicate={(cwd) => createTerminal(cwd, true)}
@@ -379,43 +389,28 @@ export function TerminalPanel({
                     <HugeiconsIcon icon={GridViewIcon} size={14} />
                   </button>
                   {multi && (
-                    <div className="flex shrink-0 items-center">
-                      <button
-                        type="button"
-                        aria-label="减少终端视口"
-                        title="减少最后一个视口"
-                        disabled={viewSlots.length <= 2}
-                        className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                        onClick={() => {
-                          if (viewSlots.length <= 2) return;
-                          setViewSlots((slots) => slots.slice(0, -1));
-                          setDropViewport(null);
-                        }}
-                      >
-                        <HugeiconsIcon icon={MinusSignIcon} size={11} />
-                      </button>
-                      <span className="w-6 text-center text-[10px] leading-none text-muted-foreground">
-                        {viewSlots.length}/6
-                      </span>
-                      <button
-                        type="button"
-                        aria-label="增加终端视口"
-                        title="增加终端视口"
-                        disabled={viewSlots.length >= MAX_TERMINAL_VIEWS}
-                        className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
-                        onClick={() => {
-                          if (viewSlots.length >= MAX_TERMINAL_VIEWS) {
-                            toast.info("最多支持 6 个终端视口", {
-                              id: "terminal-view-limit",
-                            });
-                            return;
-                          }
-                          setViewSlots((slots) => [...slots, null]);
-                        }}
-                      >
-                        <HugeiconsIcon icon={PlusSignIcon} size={11} />
-                      </button>
-                    </div>
+                    <ViewportCount
+                      count={viewSlots.length}
+                      max={MAX_TERMINAL_VIEWS}
+                      minusLabel="减少终端视口"
+                      plusLabel="增加终端视口"
+                      onMinus={() => {
+                        if (viewSlots.length <= 1) return;
+                        setViewSlots((slots) => shrinkViewportSlots(slots));
+                        setDropViewport(null);
+                      }}
+                      onPlus={() => {
+                        if (viewSlots.length >= MAX_TERMINAL_VIEWS) {
+                          toast.info("最多支持 6 个终端视口", {
+                            id: "terminal-view-limit",
+                          });
+                          return;
+                        }
+                        setViewSlots((slots) =>
+                          growViewportSlots(slots, null, MAX_TERMINAL_VIEWS),
+                        );
+                      }}
+                    />
                   )}
                 </>
               )}
