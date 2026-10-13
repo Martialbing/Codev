@@ -186,9 +186,17 @@ export function TerminalPanel({
     setViewSlots((slots) => clearViewportSlot(slots, index, null));
     setDropViewport(null);
   };
-  /** 关闭当前格子并重排剩余格子，可减到 1。 */
+  /** 关闭当前格子并重排剩余格子；只剩一格时退出多视口。 */
   const closeViewport = (index: number) => {
-    setViewSlots((slots) => closeViewportSlot(slots, index, null));
+    setViewSlots((slots) => {
+      const next = closeViewportSlot(slots, index);
+      if (next.length <= 1) {
+        const remaining = next[0];
+        if (remaining != null) onSelect(remaining);
+        return [];
+      }
+      return next;
+    });
     setDropViewport(null);
   };
 

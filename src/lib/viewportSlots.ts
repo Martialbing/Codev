@@ -6,10 +6,9 @@ export function clearViewportSlot<T>(slots: T[], index: number, empty: T): T[] {
   return slots.map((slot, position) => (position === index ? empty : slot));
 }
 
-/** 删掉这一格并前移后续格子；只剩一格时改成空格，避免掉到 0。 */
-export function closeViewportSlot<T>(slots: T[], index: number, empty: T): T[] {
+/** 删掉这一格并前移后续格子。 */
+export function closeViewportSlot<T>(slots: T[], index: number): T[] {
   if (index < 0 || index >= slots.length) return slots;
-  if (slots.length <= 1) return [empty];
   return slots.filter((_, position) => position !== index);
 }
 

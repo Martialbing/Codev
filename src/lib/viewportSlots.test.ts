@@ -17,11 +17,11 @@ describe("viewport slots", () => {
   });
 
   it("closes a middle slot and shifts the rest", () => {
-    expect(closeViewportSlot(["a", "b", "c"], 1, null)).toEqual(["a", "c"]);
+    expect(closeViewportSlot(["a", "b", "c"], 1)).toEqual(["a", "c"]);
   });
 
-  it("keeps one empty slot when closing the last remaining viewport", () => {
-    expect(closeViewportSlot(["a"], 0, null)).toEqual([null]);
+  it("closes the last remaining viewport instead of keeping an empty slot", () => {
+    expect(closeViewportSlot(["a"], 0)).toEqual([]);
   });
 
   it("shrinks to a single viewport and then no-ops", () => {

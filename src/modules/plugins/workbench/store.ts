@@ -60,7 +60,7 @@ export const useWorkbench = create<State>((set, get) => ({
     return true;
   },
   clear: (index) => set({ slots: clearViewportSlot(get().slots, index, null) }),
-  close: (index) => set({ slots: closeViewportSlot(get().slots, index, null) }),
+  close: (index) => set({ slots: closeViewportSlot(get().slots, index) }),
   remove: (index) => get().clear(index),
   swap: (from, to) => {
     const slots = [...get().slots];

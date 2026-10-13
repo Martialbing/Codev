@@ -239,11 +239,17 @@ export function PiAgentPane({
     setMaximizedViewport(null);
     setViewportKeys((slots) => clearViewportSlot(slots, index, null));
   };
-  /** 关闭当前格子并重排剩余格子，可减到 1。 */
+  /** 关闭当前格子并重排剩余格子；只剩一格时退出多视口。 */
   const closeViewport = (index: number) => {
     setMaximizedViewport(null);
     setViewportKeys((slots) => {
-      const next = closeViewportSlot(slots, index, null);
+      const next = closeViewportSlot(slots, index);
+      if (next.length <= 1) {
+        setActiveViewport(0);
+        setDropViewport(null);
+        setSelected(next[0] ?? null);
+        return [];
+      }
       setActiveViewport((current) =>
         focusAfterViewportChange(current, index, next.length),
       );

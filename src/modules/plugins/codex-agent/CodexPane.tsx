@@ -316,13 +316,18 @@ function Workspace({
     if (closing) client.discardDraft(closing);
     setSlots((currentSlots) => clearViewportSlot(currentSlots, index, null));
   };
-  /** 关闭当前格子并重排剩余格子，可减到 1。 */
+  /** 关闭当前格子并重排剩余格子；只剩一格时退出多视口。 */
   const close = (index: number) => {
     setMaximizedViewport(null);
     const closing = slots[index];
     if (closing) client.discardDraft(closing);
     setSlots((currentSlots) => {
-      const next = closeViewportSlot(currentSlots, index, null);
+      const next = closeViewportSlot(currentSlots, index);
+      if (next.length <= 1) {
+        setSplit(false);
+        setFocused(0);
+        return next.length ? next : [selected];
+      }
       setFocused((current) =>
         focusAfterViewportChange(current, index, next.length),
       );
