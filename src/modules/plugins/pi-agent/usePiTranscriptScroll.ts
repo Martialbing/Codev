@@ -79,6 +79,19 @@ export function usePiTranscriptScroll({
     useFlushSync: false,
   });
 
+  /** measure() 只清缓存；正文宽度未变时 RO 不会再报尺寸，必须补测已挂载行。 */
+  const remeasureVisibleRows = () => {
+    virtualizer.measure();
+    // 先重建估算位置，否则 resizeItem 会把旧尺寸当作未变化而跳过写回。
+    virtualizer.getTotalSize();
+    for (const row of content.current?.querySelectorAll<HTMLElement>(
+      "[data-index]",
+    ) ?? []) {
+      if (row.isConnected && row.offsetHeight > 0)
+        virtualizer.resizeItem(Number(row.dataset.index), row.offsetHeight);
+    }
+  };
+
   const visible = () => {
     const node = viewport.current;
     return (
@@ -259,7 +272,7 @@ export function usePiTranscriptScroll({
           memory.width !== undefined &&
           Math.abs(memory.width - node.clientWidth) > 1
         )
-          virtualizer.measure();
+          remeasureVisibleRows();
       }
       if (live.current.loading || live.current.historyLoadingMore) return;
       const position = restoring.current;
@@ -367,7 +380,7 @@ export function usePiTranscriptScroll({
           follow: false,
           anchor: memory.anchor && { ...memory.anchor },
         };
-        virtualizer.measure();
+        remeasureVisibleRows();
         return;
       }
       if (follow.current) latest.current.pinBottom();

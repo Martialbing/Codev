@@ -310,8 +310,6 @@ export function PiComposer(props: Props) {
   useLayoutEffect(() => {
     const node = input.current;
     if (!node) return;
-    node.style.height = "0px";
-    node.style.height = `${Math.min(180, Math.max(72, node.scrollHeight))}px`;
     const caret = recallCaret.current;
     if (!caret || historyIndex < 0) return;
     const pos = caret === "start" ? 0 : node.value.length;
@@ -567,11 +565,12 @@ export function PiComposer(props: Props) {
         )}
         <SkillMentionInput
           textareaRef={input}
+          composerKey={props.threadKey ?? ""}
           skills={props.draft.skills}
           aria-label="向 Pi 发送任务"
           placeholder="描述任务，或输入 / 命令…"
           value={props.draft.text}
-          className="pi-prompt reader-scrollbar min-h-18 max-h-45 rounded-none border-0 bg-transparent! px-3 py-3 text-[13px]! shadow-none focus-visible:ring-0 [field-sizing:fixed]"
+          className="pi-prompt reader-scrollbar min-h-18 rounded-none border-0 bg-transparent! px-3 py-3 text-[13px]! shadow-none focus-visible:ring-0 [field-sizing:fixed]"
           disabled={props.disabled}
           onFocus={() => {
             if (props.draft.text.startsWith("/")) void loadCommands();

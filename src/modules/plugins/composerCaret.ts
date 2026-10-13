@@ -1,0 +1,68 @@
+export type ComposerCaret = {
+  start: number;
+  end: number;
+  scrollTop: number;
+  height: number;
+};
+
+export const COMPOSER_MIN_HEIGHT = 72;
+export const COMPOSER_DEFAULT_MAX = 180;
+
+const carets = new Map<string, ComposerCaret>();
+let lastHeight = COMPOSER_DEFAULT_MAX;
+
+/** 输入框可拉高到窗口一半，且不低于默认上限。 */
+export function composerMaxHeight(): number {
+  if (typeof window === "undefined") return 480;
+  return Math.max(COMPOSER_DEFAULT_MAX, Math.floor(window.innerHeight * 0.5));
+}
+
+export function clampComposerHeight(height: number, cap = composerMaxHeight()) {
+  return Math.min(cap, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)));
+}
+
+export function rememberComposer(
+  key: string,
+  node: HTMLTextAreaElement,
+  height?: number,
+) {
+  const next = clampComposerHeight(
+    height ?? carets.get(key)?.height ?? lastHeight,
+  );
+  carets.set(key, {
+    start: node.selectionStart,
+    end: node.selectionEnd,
+    scrollTop: node.scrollTop,
+    height: next,
+  });
+  lastHeight = next;
+}
+
+export function recallComposer(key: string): ComposerCaret | undefined {
+  return carets.get(key);
+}
+
+export function composerHeight(key?: string) {
+  return carets.get(key ?? "")?.height ?? lastHeight;
+}
+
+export function applyComposerHeight(node: HTMLTextAreaElement, cap: number) {
+  const next = clampComposerHeight(cap);
+  node.style.maxHeight = `${next}px`;
+  node.style.height = `${Math.min(next, Math.max(COMPOSER_MIN_HEIGHT, node.scrollHeight))}px`;
+}
+
+export function restoreComposer(
+  node: HTMLTextAreaElement,
+  saved?: ComposerCaret,
+) {
+  const cap = saved?.height ?? lastHeight;
+  applyComposerHeight(node, cap);
+  if (!saved) return cap;
+  const length = node.value.length;
+  const start = Math.min(saved.start, length);
+  const end = Math.min(saved.end, length);
+  node.setSelectionRange(start, end);
+  node.scrollTop = saved.scrollTop;
+  return cap;
+}

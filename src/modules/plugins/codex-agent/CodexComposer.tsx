@@ -209,13 +209,7 @@ export function CodexComposer({
       session.images.length ||
       session.skills.length,
   );
-  useLayoutEffect(() => {
-    const el = input.current;
-    if (el) {
-      el.style.height = "0px";
-      el.style.height = `${Math.min(180, Math.max(72, el.scrollHeight))}px`;
-    }
-  }, [session.draft]);
+
   /** 选择文件后以路径附件呈现，发送时由 Codex 读取。 */
   const attach = async () => {
     const paths = await open({ multiple: true });
@@ -566,12 +560,13 @@ export function CodexComposer({
         )}
         <SkillMentionInput
           textareaRef={input}
+          composerKey={id}
           skills={session.skills}
           aria-label="发送给 Codex"
           placeholder="描述任务，或输入 / 命令…"
           disabled={disabled}
           value={session.draft}
-          className="codex-prompt reader-scrollbar min-h-18 max-h-45 rounded-none border-0 bg-transparent! px-3 py-3 text-[13px]! shadow-none focus-visible:ring-0 [field-sizing:fixed]"
+          className="codex-prompt reader-scrollbar min-h-18 rounded-none border-0 bg-transparent! px-3 py-3 text-[13px]! shadow-none focus-visible:ring-0 [field-sizing:fixed]"
           onChange={(event) => {
             recall.current = -1;
             setCommandIndex(0);
