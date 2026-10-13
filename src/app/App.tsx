@@ -1,3 +1,4 @@
+import { useAgentProjectRequest } from "@/modules/plugins/agentProjectRequest";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -303,6 +304,11 @@ export default function App() {
     }
   }, []);
 
+  const agentProjectRequest = useAgentProjectRequest((state) => state.request);
+  useEffect(() => {
+    if (agentProjectRequest) selectDockTab(agentProjectRequest.target);
+  }, [agentProjectRequest, selectDockTab]);
+
   useEffect(() => {
     void initPlugins();
   }, [initPlugins]);
@@ -586,6 +592,9 @@ export default function App() {
     persistTerminalWidth,
     expandTerminalPanel,
   } = useTerminalPanelLayout();
+  useEffect(() => {
+    if (agentProjectRequest) expandTerminalPanel();
+  }, [agentProjectRequest, expandTerminalPanel]);
   useEffect(() => {
     const openWorkbench = () => {
       selectDockTab("browser");

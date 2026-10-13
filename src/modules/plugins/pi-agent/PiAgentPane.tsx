@@ -1,3 +1,7 @@
+import {
+  useAgentProjectRequest,
+  finishAgentProjectRequest,
+} from "../agentProjectRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -658,6 +662,41 @@ export function PiAgentPane({
     setProject(cwd);
     await refreshSessions(cwd);
   };
+  const agentProjectRequest = useAgentProjectRequest((state) => state.request);
+  const handledProjectRequest = useRef<number | null>(null);
+  useEffect(() => {
+    const request = agentProjectRequest;
+    if (
+      !active ||
+      !hydrated ||
+      request?.target !== "pi" ||
+      handledProjectRequest.current === request.id
+    )
+      return;
+    handledProjectRequest.current = request.id;
+    void (async () => {
+      const existing = projects.find(
+        (cwd) => pathKey(cwd) === pathKey(request.cwd),
+      );
+      const cwd = existing ?? request.cwd;
+      const current = usePluginStore.getState();
+      if (
+        !current.piAgentProjects.some((item) => pathKey(item) === pathKey(cwd))
+      )
+        await setPiAgentProjects([...current.piAgentProjects, cwd]);
+      await setPiAgentHiddenProjects(
+        current.piAgentHiddenProjects.filter(
+          (item) => pathKey(item) !== pathKey(cwd),
+        ),
+      );
+      setSidebarOpen(true);
+      await selectProject(cwd);
+      toast.success(existing ? "Pi 项目已存在，已定位" : "已添加到 Pi 项目");
+    })()
+      .catch((error) => toast.error(String(error)))
+      .finally(() => finishAgentProjectRequest(request.id));
+  }, [agentProjectRequest, active, hydrated]);
+
   /** 点击与工作台收集共用历史准备，不改变原插件的选中态。 */
   const prepareThread = async (thread: SidebarThread) => {
     const target = await ensure(thread);

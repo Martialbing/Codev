@@ -1,3 +1,7 @@
+import {
+  useAgentProjectRequest,
+  finishAgentProjectRequest,
+} from "../agentProjectRequest";
 import { usePluginStore } from "../store";
 import { useWorkbench } from "../workbench/store";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -277,6 +281,43 @@ export function CodexSidebar({
       .refreshProject(cwd, archived)
       .catch((error) => toast.error(String(error)));
   };
+  const agentProjectRequest = useAgentProjectRequest((state) => state.request);
+  const handledProjectRequest = useRef<number | null>(null);
+  useEffect(() => {
+    const request = agentProjectRequest;
+    if (
+      request?.target !== "codex" ||
+      handledProjectRequest.current === request.id
+    )
+      return;
+    handledProjectRequest.current = request.id;
+    const existing = layout.projects.find(
+      (path) => pathKey(path) === pathKey(request.cwd),
+    );
+    const cwd = existing ?? request.cwd;
+    const key = pathKey(cwd);
+    setFilter("");
+    setOpenedProjects((current) => new Set(current).add(key));
+    setLayout((current) => ({
+      ...current,
+      projects: current.projects.some((path) => pathKey(path) === key)
+        ? current.projects
+        : [...current.projects, cwd],
+      hidden: current.hidden.filter((item) => pathKey(item) !== key),
+      collapsed: current.collapsed.filter(
+        (item) =>
+          item !== key && item !== `group:${current.projectGroups[key] ?? ""}`,
+      ),
+    }));
+    toast.success(
+      existing ? "Codex 项目已存在，已展开" : "已添加到 Codex 项目",
+    );
+    finishAgentProjectRequest(request.id);
+    void client
+      .refreshProject(cwd)
+      .catch((error) => toast.error(String(error)));
+  }, [agentProjectRequest, client]);
+
   /** 收纳状态写入统一布局文件。 */
   const toggle = (key: string) =>
     setLayout((current) => ({

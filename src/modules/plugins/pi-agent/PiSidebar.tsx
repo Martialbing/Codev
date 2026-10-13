@@ -1,3 +1,4 @@
+import { useAgentProjectRequest } from "../agentProjectRequest";
 import { usePluginStore } from "../store";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -220,6 +221,23 @@ export function PiSidebar(props: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState("");
+  const agentProjectRequest = useAgentProjectRequest((state) => state.request);
+  useEffect(() => {
+    if (agentProjectRequest?.target !== "pi") return;
+    const key = pathKey(agentProjectRequest.cwd);
+    const projectKey = `project:${key}`;
+    const groupKey = `group:${props.organization.projectGroups[key] ?? ""}`;
+    knownCollapsed.current.add(projectKey);
+    knownCollapsed.current.add(groupKey);
+    setFilter("");
+    setOpenedProjects((current) => new Set(current).add(key));
+    setCollapsed((current) => {
+      const next = new Set(current);
+      next.delete(projectKey);
+      next.delete(groupKey);
+      return next;
+    });
+  }, [agentProjectRequest, props.organizationReady]);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [groupEdit, setGroupEdit] = useState<{
     id: string;

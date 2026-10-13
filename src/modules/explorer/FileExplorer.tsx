@@ -1,3 +1,4 @@
+import { AgentProjectMenuItems } from "./AgentProjectMenuItems";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -369,6 +370,7 @@ function RootSection({
           <ContextMenuItem className={COMPACT_ITEM} onSelect={onAddFolder}>
             {t("Add folder to workspace")}
           </ContextMenuItem>
+          <AgentProjectMenuItems cwd={root} />
           {onOpenTerminal ? (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={onOpenTerminal}>
               {t("New terminal")}

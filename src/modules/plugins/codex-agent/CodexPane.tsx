@@ -1,3 +1,4 @@
+import { useAgentProjectRequest } from "../agentProjectRequest";
 import {
   useEffect,
   useLayoutEffect,
@@ -151,6 +152,10 @@ function Workspace({
   const [collapsed, setCollapsed] = useState(
     () => uiState.getItem("codev.codex.sidebar.collapsed") === "true",
   );
+  const agentProjectRequest = useAgentProjectRequest((state) => state.request);
+  useEffect(() => {
+    if (active && agentProjectRequest?.target === "codex") setCollapsed(false);
+  }, [active, agentProjectRequest]);
   const [width, setWidth] = useState(() =>
     Math.max(120, Number(uiState.getItem("codev.codex.sidebar.width")) || 236),
   );

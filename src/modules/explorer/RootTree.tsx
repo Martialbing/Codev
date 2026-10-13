@@ -1,3 +1,4 @@
+import { AgentProjectMenuItems } from "./AgentProjectMenuItems";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -868,6 +869,14 @@ export const RootTree = memo(
                       {t("Open in Terminal")}
                     </ContextMenuItem>
                   )}
+                  <AgentProjectMenuItems
+                    cwd={
+                      menuTarget.isDir
+                        ? menuTarget.path
+                        : parentOf(menuTarget.path, rootPath)
+                    }
+                    isFile={!menuTarget.isDir}
+                  />
                   {onAddAsRoot && (
                     <ContextMenuItem
                       className={COMPACT_ITEM}
