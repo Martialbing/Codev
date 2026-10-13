@@ -1,0 +1,392 @@
+import { useLayoutEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import type { PiTimelineBlock } from "./timeline";
+import {
+  readingBlockIndex,
+  readingMeasurements,
+  type PiReadingPosition,
+  type PiScrollMemory,
+} from "./transcriptScroll";
+
+/** Own restoration, measurement and user scroll intent in one place. */
+export function usePiTranscriptScroll({
+  threadKey,
+  positions,
+  blocks,
+  active,
+  loading,
+  sendRevision,
+  historyLoadingMore,
+  historyHasMore,
+  onLoadOlder,
+}: {
+  threadKey: string;
+  positions: Map<string, PiScrollMemory>;
+  blocks: PiTimelineBlock[];
+  active: boolean;
+  loading: boolean;
+  sendRevision: number;
+  historyLoadingMore: boolean;
+  historyHasMore: boolean;
+  onLoadOlder?: () => void;
+}) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const [memory] = useState<PiScrollMemory>(
+    () => positions.get(threadKey) ?? { top: 0, follow: true },
+  );
+  const [expanded] = useState(
+    () => memory.expanded ?? new Map<string, boolean>(),
+  );
+  const follow = useRef(memory.follow);
+  const [following, setFollowing] = useState(memory.follow);
+  const restoring = useRef<PiReadingPosition | null>(null);
+  const userUntil = useRef(0);
+  const loadingOlder = useRef(false);
+  const seenSend = useRef(sendRevision);
+  const wasVisible = useRef(false);
+  const wake = useRef(() => {});
+  const live = useRef({
+    active,
+    loading,
+    blocks,
+    historyLoadingMore,
+    historyHasMore,
+    onLoadOlder,
+  });
+  live.current = {
+    active,
+    loading,
+    blocks,
+    historyLoadingMore,
+    historyHasMore,
+    onLoadOlder,
+  };
+  const [initialMeasurements] = useState(() =>
+    readingMeasurements(blocks, memory),
+  );
+  const virtualizer = useVirtualizer({
+    count: blocks.length,
+    getScrollElement: () => viewport.current,
+    getItemKey: (index) => blocks[index].id,
+    estimateSize: () => 110,
+    initialOffset: memory.follow ? 0 : memory.top,
+    initialMeasurementsCache: initialMeasurements,
+    // Keep measurements on plugin hide. The visible geometry guard below freezes writes.
+    enabled: true,
+    overscan: 4,
+    useAnimationFrameWithResizeObserver: true,
+    useFlushSync: false,
+  });
+
+  const visible = () => {
+    const node = viewport.current;
+    return (
+      live.current.active &&
+      !!node &&
+      node.clientHeight > 0 &&
+      node.clientWidth > 0 &&
+      node.getClientRects().length > 0
+    );
+  };
+  const capture = (): PiReadingPosition | null => {
+    const node = viewport.current;
+    if (!node || !visible()) return null;
+    const top = node.scrollTop;
+    const row = virtualizer.getVirtualItemForOffset(top);
+    const position: PiReadingPosition = { top, follow: follow.current };
+    if (!row) return position;
+    position.anchor = { blockId: String(row.key), offset: top - row.start };
+    const element = content.current?.querySelector<HTMLElement>(
+      `[data-index="${row.index}"]`,
+    );
+    if (element) {
+      const rect = node.getBoundingClientRect();
+      const scale = rect.height / node.offsetHeight || 1;
+      const items = [
+        ...element.querySelectorAll<HTMLElement>("[data-pi-text]"),
+      ];
+      const item = items.find((entry) => {
+        const box = entry.getBoundingClientRect();
+        return box.height > 0 && box.bottom > rect.top;
+      });
+      if (item) {
+        position.anchor.itemId = item.dataset.piText;
+        position.anchor.itemOffset =
+          (rect.top - item.getBoundingClientRect().top) / scale;
+      }
+    }
+    return position;
+  };
+  const remember = () => {
+    if (
+      !wasVisible.current ||
+      restoring.current ||
+      live.current.loading ||
+      live.current.historyLoadingMore ||
+      !visible()
+    )
+      return;
+    const node = viewport.current;
+    const position = capture();
+    if (!position || !node) return;
+    if (!follow.current) {
+      for (const detail of content.current?.querySelectorAll<HTMLDetailsElement>(
+        "[data-pi-expansion]",
+      ) ?? []) {
+        const id = detail.dataset.piExpansion;
+        if (id) expanded.set(id, detail.open);
+      }
+    }
+    Object.assign(memory, position, {
+      width: node.clientWidth,
+      measurements: virtualizer.takeSnapshot(),
+      expanded,
+    });
+    memory.anchor = position.anchor;
+    positions.set(threadKey, memory);
+  };
+  const pinBottom = () => {
+    const node = viewport.current;
+    if (!node || !visible()) return;
+    if (live.current.blocks.length)
+      virtualizer.scrollToIndex(live.current.blocks.length - 1, {
+        align: "end",
+      });
+    node.scrollTop = node.scrollHeight;
+  };
+  const bottom = () => {
+    restoring.current = null;
+    userUntil.current = 0;
+    follow.current = true;
+    setFollowing(true);
+    memory.follow = true;
+    memory.top = 0;
+    memory.anchor = undefined;
+    positions.set(threadKey, memory);
+    pinBottom();
+  };
+  /** A gesture, not a programmatic scroll event, gives control back to the reader. */
+  const interact = () => {
+    restoring.current = null;
+    loadingOlder.current = false;
+    // Cancel any outstanding virtualizer scroll-to-index reconciliation.
+    if (viewport.current)
+      virtualizer.scrollToOffset(viewport.current.scrollTop);
+    follow.current = false;
+    setFollowing(false);
+    userUntil.current = performance.now() + 1000;
+    remember();
+  };
+  const loadEarlier = () => {
+    const node = viewport.current;
+    const state = live.current;
+    if (
+      !node ||
+      restoring.current ||
+      !visible() ||
+      node.scrollTop >= 80 ||
+      !state.historyHasMore ||
+      state.loading ||
+      state.historyLoadingMore ||
+      loadingOlder.current ||
+      !state.onLoadOlder
+    )
+      return;
+    remember();
+    // Prepending uses the same identity anchor, not a difference of two estimated totals.
+    restoring.current = {
+      top: memory.top,
+      follow: false,
+      anchor: memory.anchor && { ...memory.anchor },
+    };
+    loadingOlder.current = true;
+    state.onLoadOlder();
+    wake.current();
+  };
+  const onScroll = () => {
+    if (
+      !visible() ||
+      restoring.current ||
+      live.current.loading ||
+      live.current.historyLoadingMore
+    )
+      return;
+    const node = viewport.current;
+    if (!node) return;
+    if (performance.now() < userUntil.current) {
+      userUntil.current = performance.now() + 200;
+      const atBottom =
+        node.scrollTop > 0 &&
+        node.scrollHeight - node.clientHeight - node.scrollTop < 32;
+      follow.current = atBottom;
+      setFollowing(atBottom);
+      if (!atBottom) loadEarlier();
+    }
+    remember();
+  };
+
+  const latest = useRef({ remember, pinBottom, visible, bottom });
+  latest.current = { remember, pinBottom, visible, bottom };
+  useLayoutEffect(() => {
+    memory.expanded = expanded;
+    positions.set(threadKey, memory);
+    let frame = 0;
+    let stable = 0;
+    let previousTarget = Number.NaN;
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(tick);
+    };
+    const tick = () => {
+      frame = 0;
+      if (!latest.current.visible()) {
+        wasVisible.current = false;
+        return;
+      }
+      const node = viewport.current;
+      if (!node) return;
+      if (!wasVisible.current) {
+        wasVisible.current = true;
+        stable = 0;
+        restoring.current = {
+          top: memory.top,
+          follow: memory.follow,
+          anchor: memory.anchor && { ...memory.anchor },
+        };
+        follow.current = memory.follow;
+        setFollowing(memory.follow);
+        if (
+          memory.width !== undefined &&
+          Math.abs(memory.width - node.clientWidth) > 1
+        )
+          virtualizer.measure();
+      }
+      if (live.current.loading || live.current.historyLoadingMore) return;
+      const position = restoring.current;
+      if (position) {
+        if (!live.current.blocks.length) return;
+        if (position.follow) {
+          latest.current.pinBottom();
+        } else {
+          const index = readingBlockIndex(live.current.blocks, position);
+          const row =
+            index >= 0 ? virtualizer.measurementsCache[index] : undefined;
+          let target = position.top;
+          if (row && position.anchor) {
+            target =
+              row.start +
+              Math.min(position.anchor.offset, Math.max(0, row.size - 1));
+            const element = content.current?.querySelector<HTMLElement>(
+              `[data-index="${index}"]`,
+            );
+            const item =
+              element &&
+              [...element.querySelectorAll<HTMLElement>("[data-pi-text]")].find(
+                (entry) =>
+                  entry.dataset.piText === position.anchor?.itemId &&
+                  entry.getBoundingClientRect().height > 0,
+              );
+            if (item && position.anchor.itemOffset !== undefined) {
+              const rect = node.getBoundingClientRect();
+              const scale = rect.height / node.offsetHeight || 1;
+              target =
+                node.scrollTop +
+                (item.getBoundingClientRect().top - rect.top) / scale +
+                position.anchor.itemOffset;
+            }
+          }
+          const reachable = Math.max(
+            0,
+            Math.min(target, node.scrollHeight - node.clientHeight),
+          );
+          if (Math.abs(node.scrollTop - reachable) > 1)
+            virtualizer.scrollToOffset(target);
+          const mounted =
+            index < 0 ||
+            !!content.current?.querySelector(`[data-index="${index}"]`);
+          stable =
+            mounted &&
+            Math.abs(previousTarget - reachable) < 1 &&
+            Math.abs(node.scrollTop - reachable) < 1
+              ? stable + 1
+              : 0;
+          previousTarget = reachable;
+          if (stable < 3) {
+            schedule();
+            return;
+          }
+        }
+        restoring.current = null;
+        loadingOlder.current = false;
+        userUntil.current = 0;
+        stable = 0;
+        latest.current.remember();
+      }
+    };
+    wake.current = schedule;
+    schedule();
+    // No DOM read on cleanup: a hidden/unmounted viewport can already report a clamped zero.
+    return () => {
+      cancelAnimationFrame(frame);
+      wake.current = () => {};
+    };
+  }, [threadKey, positions, memory, expanded, virtualizer]);
+
+  useLayoutEffect(() => {
+    if (sendRevision !== seenSend.current) {
+      seenSend.current = sendRevision;
+      latest.current.bottom();
+    }
+    if (!visible()) {
+      wasVisible.current = false;
+      return;
+    }
+    wake.current();
+    if (loading || restoring.current || !wasVisible.current) return;
+    if (follow.current) pinBottom();
+    remember();
+  });
+  useLayoutEffect(() => {
+    const node = viewport.current;
+    const body = content.current;
+    if (!node || !body) return;
+    const observer = new ResizeObserver(() => {
+      wake.current();
+      if (!latest.current.visible()) {
+        wasVisible.current = false;
+        return;
+      }
+      if (restoring.current || !wasVisible.current) return;
+      if (
+        memory.width !== undefined &&
+        Math.abs(memory.width - node.clientWidth) > 1 &&
+        !follow.current
+      ) {
+        restoring.current = {
+          top: memory.top,
+          follow: false,
+          anchor: memory.anchor && { ...memory.anchor },
+        };
+        virtualizer.measure();
+        return;
+      }
+      if (follow.current) latest.current.pinBottom();
+      latest.current.remember();
+    });
+    observer.observe(node);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, []);
+
+  return {
+    viewport,
+    content,
+    virtualizer,
+    following,
+    expanded,
+    bottom,
+    interact,
+    loadEarlier,
+    onScroll,
+  };
+}

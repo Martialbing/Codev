@@ -6,7 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { usePiTranscriptScroll } from "./usePiTranscriptScroll";
+import {
+  PiExpansionContext,
+  usePiExpansion,
+  type PiScrollMemory,
+} from "./transcriptScroll";
 import { Streamdown } from "streamdown";
 import { PiFileOperations } from "./PiFileOperations";
 import { Button } from "@/components/ui/button";
@@ -171,7 +176,7 @@ const TranscriptItem = memo(function TranscriptItem({
   openForSearch?: boolean;
   showActions?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = usePiExpansion(`item:${item.id}`);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(
     item.kind === "message" && item.role === "user" ? item.text : "",
@@ -181,7 +186,7 @@ const TranscriptItem = memo(function TranscriptItem({
   const editInput = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (openForSearch) setExpanded(true);
-  }, [openForSearch]);
+  }, [openForSearch, setExpanded]);
   useEffect(() => {
     if (item.kind === "message" && item.role === "user" && !editing)
       setEditText(item.text);
@@ -217,6 +222,7 @@ const TranscriptItem = memo(function TranscriptItem({
     return (
       <details
         data-pi-text={item.id}
+        data-pi-expansion={`item:${item.id}`}
         className="pi-tool"
         open={expanded}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
@@ -436,13 +442,14 @@ function ThinkingDetail({
   item: PiThinkingItem;
   openForSearch: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = usePiExpansion(`thinking:${item.id}`);
   useEffect(() => {
     if (openForSearch) setExpanded(true);
-  }, [openForSearch]);
+  }, [openForSearch, setExpanded]);
   return (
     <details
       className="pi-process-step"
+      data-pi-expansion={`thinking:${item.id}`}
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
@@ -477,7 +484,7 @@ function ActivityGroup({
   actions: MessageActions;
   openForSearch?: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = usePiExpansion(`activity:${items[0]?.id}`);
   const current = currentActivity(items);
   const transitionKey = current
     ? `${current.id}:${current.kind === "tool" ? current.status : current.streaming}`
@@ -485,10 +492,11 @@ function ActivityGroup({
   const matched = items.some((item) => item.id === openForSearch);
   useEffect(() => {
     if (matched) setExpanded(true);
-  }, [matched]);
+  }, [matched, setExpanded]);
   return (
     <details
       className="pi-activity min-w-0 max-w-full"
+      data-pi-expansion={`activity:${items[0]?.id}`}
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
@@ -538,8 +546,10 @@ function TimelineBlock({
 }) {
   const isProcess = block.kind === "process";
   const blockRunning = isProcess ? block.running : false;
-  const [expanded, setExpanded] = useState(blockRunning);
-  const userToggled = useRef(false);
+  const [expanded, setExpanded] = usePiExpansion(
+    `process:${block.id}`,
+    blockRunning,
+  );
   const [now, setNow] = useState(Date.now());
   const blockFinishedAt = isProcess ? block.finishedAt : undefined;
   const searchExpanded =
@@ -550,11 +560,7 @@ function TimelineBlock({
     );
   useEffect(() => {
     if (searchExpanded) setExpanded(true);
-  }, [searchExpanded]);
-  useEffect(() => {
-    if (userToggled.current || !isProcess) return;
-    setExpanded(blockRunning);
-  }, [blockRunning, isProcess]);
+  }, [searchExpanded, setExpanded]);
   useEffect(() => {
     if (!isProcess || !blockRunning || blockFinishedAt) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -586,12 +592,15 @@ function TimelineBlock({
     elapsed === null ? "" : ` · 用时 ${formatElapsed(elapsed)}`;
   return (
     <>
-      <details className="pi-process" open={expanded}>
+      <details
+        className="pi-process"
+        data-pi-expansion={`process:${block.id}`}
+        open={expanded}
+      >
         <summary
           className="pi-process-summary flex max-w-full cursor-pointer list-none items-center gap-2 py-1.5 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden"
           onClick={(event) => {
             event.preventDefault();
-            userToggled.current = true;
             setExpanded((value) => !value);
           }}
         >
@@ -743,23 +752,14 @@ export function PiTranscript({
       canEditLastUser,
     ],
   );
-  const viewport = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const fallbackPositions = useRef(
-    new Map<string, { top: number; follow: boolean }>(),
-  );
+  const fallbackPositions = useRef(new Map<string, PiScrollMemory>());
   const positions = scrollPositions ?? fallbackPositions.current;
-  const saved = positions.get(threadKey);
-  const follow = useRef(saved?.follow ?? true);
-  const [following, setFollowing] = useState(follow.current);
   const [query, setQuery] = useState("");
   const [hit, setHit] = useState(0);
   const [jump, setJump] = useState(0);
   const appliedJump = useRef(0);
   const revealPending = useRef(false);
-  const seenSends = useRef(new Map<string, number>());
-  const loadingOlder = useRef(false);
-  const pendingOlderRestore = useRef<number | null>(null);
+
   const running = view.status === "running" || view.status === "stopping";
   const blocks = useMemo(
     () =>
@@ -809,148 +809,37 @@ export function PiTranscript({
         : [],
     [blocks, query],
   );
-  const virtualizer = useVirtualizer({
-    count: blocks.length,
-    getScrollElement: () => viewport.current,
-    getItemKey: (index) => blocks[index].id,
-    estimateSize: () => 110,
-    overscan: 4,
-    enabled: active,
-    useAnimationFrameWithResizeObserver: true,
-    useFlushSync: false,
+  const {
+    viewport,
+    content,
+    virtualizer,
+    following,
+    expanded,
+    bottom: scrollBottom,
+    interact: pauseFollow,
+    loadEarlier,
+    onScroll,
+  } = usePiTranscriptScroll({
+    threadKey,
+    positions,
+    blocks,
+    active,
+    loading,
+    sendRevision,
+    historyLoadingMore: !!view.historyLoadingMore,
+    historyHasMore: !!view.historyHasMore,
+    onLoadOlder,
   });
-  /** 把当前阅读位置写到 client，切会话后仍能恢复。 */
-  const rememberPosition = (node?: HTMLDivElement | null) => {
-    const target = node ?? viewport.current;
-    if (!target) return;
-    if (follow.current) {
-      positions.set(threadKey, { top: 0, follow: true });
-      return;
-    }
-    const collapsed = target.scrollHeight <= target.clientHeight + 32;
-    if (target.scrollTop <= 1 && collapsed) {
-      const previous = positions.get(threadKey);
-      if (previous && !previous.follow) return;
-    }
-    positions.set(threadKey, {
-      top: target.scrollTop,
-      follow: false,
-    });
-  };
-  /** 用户主动开始翻阅时暂停滚动跟随。 */
-  const pauseFollow = () => {
-    follow.current = false;
-    setFollowing(false);
-    rememberPosition();
-  };
-  /** 顶部滚轮也可翻页，内容不足一屏时无需等待 scroll 事件。 */
-  const loadEarlier = () => {
-    const node = viewport.current;
-    if (
-      !node ||
-      node.scrollTop >= 80 ||
-      !view.historyHasMore ||
-      loading ||
-      view.historyLoadingMore ||
-      loadingOlder.current ||
-      !onLoadOlder
-    )
-      return;
-    pauseFollow();
-    loadingOlder.current = true;
-    pendingOlderRestore.current = virtualizer.getTotalSize();
-    onLoadOlder();
-  };
-  const transcriptSize = virtualizer.getTotalSize();
-  /** 钉在最后一块真实底边，避免估高把视口停在中部。 */
-  const pinBottom = () => {
-    const node = viewport.current;
-    if (!node) return;
-    const last = blocks.length - 1;
-    if (last >= 0) virtualizer.scrollToIndex(last, { align: "end" });
-    node.scrollTop = node.scrollHeight;
-  };
-  /** 返回最新消息并重新启用后续流式跟随。 */
-  const scrollBottom = () => {
-    follow.current = true;
-    setFollowing(true);
-    pinBottom();
-    rememberPosition();
-  };
   useLayoutEffect(() => {
-    const node = viewport.current;
-    const position = positions.get(threadKey);
-    pendingOlderRestore.current = null;
-    loadingOlder.current = false;
-    follow.current = position?.follow ?? true;
-    setFollowing(follow.current);
     setQuery("");
     setHit(0);
-    seenSends.current.set(threadKey, sendRevision);
-    if (follow.current) pinBottom();
-    else if (node && position && position.top > 1)
-      node.scrollTop = position.top;
-    return () => rememberPosition(node);
-  }, [threadKey]);
-  useLayoutEffect(() => {
-    if (!sendRevision || seenSends.current.get(threadKey) === sendRevision)
-      return;
-    seenSends.current.set(threadKey, sendRevision);
-    follow.current = true;
-    setFollowing(true);
-    setQuery("");
-    appliedJump.current = jump;
     revealPending.current = false;
-    pinBottom();
-  }, [threadKey, sendRevision, jump]);
-  useLayoutEffect(() => {
-    const node = viewport.current;
-    if (!node) return;
-    const previous = pendingOlderRestore.current;
-    if (previous != null && !view.historyLoadingMore) {
-      node.scrollTop += transcriptSize - previous;
-      pendingOlderRestore.current = null;
-      loadingOlder.current = false;
-      rememberPosition(node);
-      return;
-    }
-    if (active && follow.current) pinBottom();
-    else if (active && !follow.current) {
-      const position = positions.get(threadKey);
-      if (
-        position &&
-        !position.follow &&
-        position.top > 1 &&
-        node.scrollTop <= 1 &&
-        node.scrollHeight > position.top
-      )
-        node.scrollTop = position.top;
-    }
-  }, [active, view.items, view.historyLoadingMore, transcriptSize]);
-  useEffect(() => {
-    const node = viewport.current;
-    const body = content.current;
-    if (!active || !node) return;
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (follow.current) pinBottom();
-      });
-    });
-    observer.observe(node);
-    if (body) observer.observe(body);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, [active, threadKey]);
+  }, [threadKey, sendRevision]);
   useLayoutEffect(() => {
     if (jump === appliedJump.current || !matches.length) return;
     appliedJump.current = jump;
     revealPending.current = true;
-    follow.current = false;
-    setFollowing(false);
+    pauseFollow();
     virtualizer.scrollToIndex(matches[hit % matches.length].blockIndex, {
       align: "center",
     });
@@ -1007,151 +896,150 @@ export function PiTranscript({
     setJump((value) => value + 1);
   };
   return (
-    <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-      aria-busy={loading}
-    >
-      {loading && (
-        <div
-          data-testid="pi-history-loading"
-          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background text-muted-foreground"
-        >
-          <Spinner className="size-6" aria-label="正在加载线程" />
-          <span className="text-xs">正在加载线程…</span>
-        </div>
-      )}
-      {searchOpen && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
-          <HugeiconsIcon icon={Search01Icon} size={14} />
-          <Input
-            aria-label="搜索当前线程"
-            autoFocus
-            placeholder="搜索当前线程"
-            className="h-7 min-w-0 flex-1 rounded-lg text-xs!"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setHit(0);
-              setJump((value) => value + 1);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                navigate(event.shiftKey ? -1 : 1);
-              }
-              if (event.key === "Escape") onCloseSearch();
-            }}
-          />
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {matches.length ? (hit % matches.length) + 1 : 0}/{matches.length}
-          </span>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="上一处"
-            onClick={() => navigate(-1)}
-          >
-            <HugeiconsIcon icon={ArrowUp01Icon} size={12} />
-          </Button>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="下一处"
-            onClick={() => navigate(1)}
-          >
-            <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
-          </Button>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="关闭搜索"
-            onClick={onCloseSearch}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={12} />
-          </Button>
-        </div>
-      )}
+    <PiExpansionContext.Provider value={expanded}>
       <div
-        ref={viewport}
-        tabIndex={0}
-        data-testid="pi-transcript"
-        className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none]"
-        onWheel={(event) => {
-          if (event.deltaY < 0) {
-            pauseFollow();
-            loadEarlier();
-          }
-        }}
-        onPointerDown={pauseFollow}
-        onKeyDown={(event) => {
-          if (["PageUp", "ArrowUp", "Home"].includes(event.key)) {
-            pauseFollow();
-            loadEarlier();
-          }
-        }}
-        onScroll={(event) => {
-          const node = event.currentTarget;
-          if (!follow.current) loadEarlier();
-          if (
-            !loadingOlder.current &&
-            !view.historyLoadingMore &&
-            node.scrollTop > 0 &&
-            node.scrollHeight - node.scrollTop - node.clientHeight < 32
-          ) {
-            follow.current = true;
-            setFollowing(true);
-          }
-          rememberPosition(node);
-        }}
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        aria-busy={loading}
       >
-        {!blocks.length && (
-          <div className="flex h-full min-h-24 flex-col items-center justify-center gap-2 px-5 text-center">
-            <span className="text-base font-medium">从一个任务开始</span>
-            <span className="text-xs text-muted-foreground">
-              选择项目，在下方输入任务或恢复已有线程。
+        {loading && (
+          <div
+            data-testid="pi-history-loading"
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background text-muted-foreground"
+          >
+            <Spinner className="size-6" aria-label="正在加载线程" />
+            <span className="text-xs">正在加载线程…</span>
+          </div>
+        )}
+        {searchOpen && (
+          <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
+            <HugeiconsIcon icon={Search01Icon} size={14} />
+            <Input
+              aria-label="搜索当前线程"
+              autoFocus
+              placeholder="搜索当前线程"
+              className="h-7 min-w-0 flex-1 rounded-lg text-xs!"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setHit(0);
+                setJump((value) => value + 1);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  navigate(event.shiftKey ? -1 : 1);
+                }
+                if (event.key === "Escape") onCloseSearch();
+              }}
+            />
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {matches.length ? (hit % matches.length) + 1 : 0}/{matches.length}
             </span>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="上一处"
+              onClick={() => navigate(-1)}
+            >
+              <HugeiconsIcon icon={ArrowUp01Icon} size={12} />
+            </Button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="下一处"
+              onClick={() => navigate(1)}
+            >
+              <HugeiconsIcon icon={ArrowDown01Icon} size={12} />
+            </Button>
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="关闭搜索"
+              onClick={onCloseSearch}
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={12} />
+            </Button>
           </div>
         )}
         <div
-          ref={content}
-          className="relative mx-auto w-full max-w-3xl"
-          style={{ height: virtualizer.getTotalSize() }}
+          ref={viewport}
+          tabIndex={0}
+          data-testid="pi-transcript"
+          className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none]"
+          onWheel={(event) => {
+            pauseFollow();
+            if (event.deltaY < 0) loadEarlier();
+          }}
+          onPointerDown={pauseFollow}
+          onTouchStart={pauseFollow}
+          onKeyDown={(event) => {
+            if (
+              [
+                "PageUp",
+                "PageDown",
+                "ArrowUp",
+                "ArrowDown",
+                "Home",
+                "End",
+                " ",
+              ].includes(event.key)
+            ) {
+              pauseFollow();
+              if (["PageUp", "ArrowUp", "Home"].includes(event.key))
+                loadEarlier();
+            }
+          }}
+          onScroll={onScroll}
         >
-          {view.historyLoadingMore && (
-            <div className="px-4 py-2 text-center text-[11px] text-muted-foreground">
-              正在加载更早记录…
+          {!blocks.length && (
+            <div className="flex h-full min-h-24 flex-col items-center justify-center gap-2 px-5 text-center">
+              <span className="text-base font-medium">从一个任务开始</span>
+              <span className="text-xs text-muted-foreground">
+                选择项目，在下方输入任务或恢复已有线程。
+              </span>
             </div>
           )}
-          {virtualizer.getVirtualItems().map((row) => (
-            <div
-              key={row.key}
-              data-index={row.index}
-              ref={virtualizer.measureElement}
-              className="absolute top-0 left-0 w-full px-4 py-2"
-              style={{ transform: `translateY(${row.start}px)` }}
-            >
-              <TimelineBlock
-                cwd={cwd}
-                block={blocks[row.index]}
-                query={searchOpen ? query : ""}
-                actions={actions}
-                snapshot={snapshotByBlock.get(blocks[row.index].id)}
-              />
-            </div>
-          ))}
+          <div
+            ref={content}
+            className="relative mx-auto w-full max-w-3xl"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {view.historyLoadingMore && (
+              <div className="px-4 py-2 text-center text-[11px] text-muted-foreground">
+                正在加载更早记录…
+              </div>
+            )}
+            {virtualizer.getVirtualItems().map((row) => (
+              <div
+                key={row.key}
+                data-index={row.index}
+                ref={virtualizer.measureElement}
+                className="absolute top-0 left-0 w-full px-4 py-2"
+                style={{ transform: `translateY(${row.start}px)` }}
+              >
+                <TimelineBlock
+                  cwd={cwd}
+                  block={blocks[row.index]}
+                  query={searchOpen ? query : ""}
+                  actions={actions}
+                  snapshot={snapshotByBlock.get(blocks[row.index].id)}
+                />
+              </div>
+            ))}
+          </div>
         </div>
+        {!following && !!blocks.length && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 shadow"
+            onClick={scrollBottom}
+          >
+            <HugeiconsIcon icon={ArrowDown01Icon} size={13} />
+            回到最新
+          </Button>
+        )}
       </div>
-      {!following && !!blocks.length && (
-        <Button
-          size="sm"
-          variant="secondary"
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 gap-1 shadow"
-          onClick={scrollBottom}
-        >
-          <HugeiconsIcon icon={ArrowDown01Icon} size={13} />
-          回到最新
-        </Button>
-      )}
-    </div>
+    </PiExpansionContext.Provider>
   );
 }

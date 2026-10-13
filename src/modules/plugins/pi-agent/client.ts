@@ -41,6 +41,8 @@ import {
   refreshPiTurn,
 } from "./turnDiff";
 
+import type { PiScrollMemory } from "./transcriptScroll";
+
 export type PiSettledListener = (
   thread: PiThread,
   text: string,
@@ -100,10 +102,7 @@ export class PiWorkspaceClient {
   private static readonly IDLE_RUNTIME_MS = 20 * 60 * 1000;
   readonly threads = new Map<string, PiThread>();
   /** 阅读位置跟 client 走，切会话重建 transcript 也不会丢。 */
-  readonly scrollPositions = new Map<
-    string,
-    { top: number; follow: boolean }
-  >();
+  readonly scrollPositions = new Map<string, PiScrollMemory>();
   private pending = new Map<string, Pending>();
   private opening = new Map<string, Promise<PiThread>>();
   private disposed = false;
