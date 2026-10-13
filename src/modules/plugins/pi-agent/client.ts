@@ -1442,7 +1442,7 @@ export class PiWorkspaceClient {
       ? await clonePiSession(source, until.entryId, {
           timestamp: until.sourceTimestamp,
           contentIndex: until.contentIndex ?? Number(until.id.split(":").pop()),
-          text: until.text,
+          text: until.sourceText ?? until.text,
         })
       : await clonePiSession(source);
     if (name) {

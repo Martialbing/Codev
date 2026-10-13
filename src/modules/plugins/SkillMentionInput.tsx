@@ -13,6 +13,7 @@ import {
   applyComposerHeight,
   composerHeight,
   composerMaxHeight,
+  resetComposerHeight,
   rememberComposer,
   restoreComposer,
   recallComposer,
@@ -63,6 +64,7 @@ export function SkillMentionInput({
   const drag = useRef<{ y: number; height: number } | null>(null);
   const sizing = useRef(false);
   const restoring = useRef(false);
+  const previousDraft = useRef({ composerKey, value });
   const segments = skillHighlightSegments(value, skills);
   const highlighted = segments.some((part) => part.skill);
 
@@ -136,6 +138,10 @@ export function SkillMentionInput({
     const textarea = localRef.current;
     if (!textarea) return;
     sizing.current = true;
+    const previous = previousDraft.current;
+    if (previous.composerKey === composerKey && previous.value && !value)
+      resetComposerHeight(composerKey);
+    previousDraft.current = { composerKey, value };
     applyComposerHeight(textarea, composerHeight(composerKey));
     sizing.current = false;
     const overlay = overlayRef.current;

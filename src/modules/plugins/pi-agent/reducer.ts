@@ -1,3 +1,4 @@
+import { INLINE_THINKING_SUFFIX, splitLiveThinking } from "./inlineThinking";
 import type {
   PiEventEnvelope,
   PiImage,
@@ -296,6 +297,23 @@ function mergeItems(
   return next;
 }
 
+/** 只投影本次实时更新，保留旧历史；重复快照先替换旧的内联思考项。 */
+function mergeLiveItems(
+  items: PiTranscriptItem[],
+  incoming: PiTranscriptItem[],
+): PiTranscriptItem[] {
+  const ids = new Set(incoming.map((item) => item.id));
+  return mergeItems(items, incoming).flatMap((item) => {
+    if (
+      item.kind === "thinking" &&
+      item.id.endsWith(INLINE_THINKING_SUFFIX) &&
+      ids.has(item.id.slice(0, -INLINE_THINKING_SUFFIX.length))
+    )
+      return [];
+    return ids.has(item.id) ? splitLiveThinking(item) : [item];
+  });
+}
+
 /** 标准化模型标识。 */
 function modelValue(value: unknown): PiModel | null {
   const model = objectValue(value);
@@ -451,8 +469,11 @@ function reduceEvent(
     const timestamp = timestampValue(update.timestamp);
     const previous = state.items.find((item) => item.id === id);
     const text =
-      (previous && previous.kind !== "tool" ? previous.text : "") +
-      update.delta;
+      (previous?.kind === "message"
+        ? (previous.sourceText ?? previous.text)
+        : previous?.kind === "thinking"
+          ? previous.text
+          : "") + update.delta;
     const item: PiTranscriptItem =
       update.type === "thinking_delta"
         ? { id, kind: "thinking", text, streaming: true, timestamp }
@@ -466,11 +487,17 @@ function reduceEvent(
             timestamp,
           };
     const activityOrder = (state.activityRevision ?? 0) + 1;
+    const items = mergeLiveItems(state.items, [{ ...item, activityOrder }]);
+    const displayed = items.find((entry) => entry.id === id);
     return {
       ...state,
       activityRevision: activityOrder,
-      phase: item.kind === "thinking" ? "思考中" : "正在回复",
-      items: mergeItems(state.items, [{ ...item, activityOrder }]),
+      phase:
+        displayed?.kind === "thinking" ||
+        (displayed?.kind === "message" && !displayed.text)
+          ? "思考中"
+          : "正在回复",
+      items,
     };
   }
   if (type === "message_end") {
@@ -484,7 +511,7 @@ function reduceEvent(
     return {
       ...state,
       activityRevision,
-      items: mergeItems(
+      items: mergeLiveItems(
         state.items,
         items.map((item, index) => ({
           ...item,

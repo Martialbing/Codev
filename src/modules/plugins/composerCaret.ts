@@ -46,9 +46,17 @@ export function composerHeight(key?: string) {
   return carets.get(key ?? "")?.height ?? lastHeight;
 }
 
+export function resetComposerHeight(key: string) {
+  const saved = carets.get(key);
+  if (saved) carets.set(key, { ...saved, height: COMPOSER_DEFAULT_MAX });
+  lastHeight = COMPOSER_DEFAULT_MAX;
+}
+
 export function applyComposerHeight(node: HTMLTextAreaElement, cap: number) {
   const next = clampComposerHeight(cap);
   node.style.maxHeight = `${next}px`;
+  // 先释放旧高度，否则 scrollHeight 至少等于上一次拉伸后的可视高度。
+  node.style.height = "auto";
   node.style.height = `${Math.min(next, Math.max(COMPOSER_MIN_HEIGHT, node.scrollHeight))}px`;
 }
 

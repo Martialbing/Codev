@@ -81,6 +81,8 @@ export type PiMessageItem = {
   /** JSONL entry 身份独立于 React/虚拟列表展示 ID。 */
   entryId?: string;
   sourceTimestamp?: number | string;
+  /** 实时正文拆出内联思考后，仍用原文累积 delta 和定位分叉。 */
+  sourceText?: string;
   contentIndex?: number;
   activityOrder?: number;
   timestamp?: number;

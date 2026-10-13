@@ -1500,6 +1500,44 @@ describe("Pi RPC workspace", () => {
     }
   });
 
+  it("forks a live reply using the original text after inline thinking is folded", async () => {
+    const client = new PiWorkspaceClient(vi.fn(), vi.fn());
+    try {
+      const thread = await client.open(
+        "inline-thinking",
+        "D:/one",
+        "source.jsonl",
+      );
+      const text = "<think>private analysis</think>\nvisible reply";
+      thread.view = piViewReducer(thread.view, {
+        type: "event",
+        payload: {
+          sessionId: 1,
+          stream: "stdout",
+          event: {
+            type: "message_end",
+            message: {
+              role: "assistant",
+              timestamp: 1700000001000,
+              content: [{ type: "text", text }],
+            },
+          },
+        },
+      });
+      const until = thread.view.items[thread.view.items.length - 1];
+      if (until.kind !== "message") throw new Error("Missing assistant");
+      expect(until.text).toBe("visible reply");
+      await client.branch(thread, undefined, until);
+      expect(nativeMocks.clonePiSession).toHaveBeenLastCalledWith(
+        "source.jsonl",
+        undefined,
+        { timestamp: 1700000001000, contentIndex: 0, text },
+      );
+    } finally {
+      client.dispose();
+    }
+  });
+
   it("forks by copying the session file without starting a runtime", async () => {
     const native = await import("./native");
     vi.mocked(native.startPiAgent).mockClear();
