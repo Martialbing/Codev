@@ -1,3 +1,7 @@
+import {
+  openInDefaultApp,
+  shouldOpenExternally,
+} from "@/modules/reader/defaultApp";
 import { AgentProjectMenuItems } from "./AgentProjectMenuItems";
 import { Button } from "@/components/ui/button";
 import {
@@ -842,9 +846,17 @@ export const RootTree = memo(
                   {!menuTarget.isDir && (
                     <ContextMenuItem
                       className={COMPACT_ITEM}
-                      onSelect={() => onOpenFile(menuTarget.path, true)}
+                      onSelect={() => {
+                        if (shouldOpenExternally(menuTarget.path)) {
+                          void openInDefaultApp(menuTarget.path);
+                        } else {
+                          onOpenFile(menuTarget.path, true);
+                        }
+                      }}
                     >
-                      {t("Open")}
+                      {shouldOpenExternally(menuTarget.path)
+                        ? t("Open with Default App")
+                        : t("Open")}
                     </ContextMenuItem>
                   )}
                   {!menuTarget.isDir && onOpenFileToSide && (

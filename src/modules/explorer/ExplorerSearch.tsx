@@ -24,6 +24,10 @@ import {
   useState,
 } from "react";
 import { fileIconUrl } from "./lib/iconResolver";
+import {
+  openInDefaultApp,
+  shouldOpenExternally,
+} from "@/modules/reader/defaultApp";
 import { copyToClipboard, revealInFinder } from "./lib/contextActions";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "./lib/menuItemClass";
 import { cn } from "@/lib/utils";
@@ -445,9 +449,17 @@ export const ExplorerSearch = forwardRef<ExplorerSearchHandle, Props>(
                           {!hit.is_dir && (
                             <ContextMenuItem
                               className={COMPACT_ITEM}
-                              onSelect={() => onOpenFile(hit.path)}
+                              onSelect={() => {
+                                if (shouldOpenExternally(hit.path)) {
+                                  void openInDefaultApp(hit.path);
+                                } else {
+                                  onOpenFile(hit.path);
+                                }
+                              }}
                             >
-                              {t("Open")}
+                              {shouldOpenExternally(hit.path)
+                                ? t("Open with Default App")
+                                : t("Open")}
                             </ContextMenuItem>
                           )}
                           {hit.is_dir && onRevealInTerminal && (

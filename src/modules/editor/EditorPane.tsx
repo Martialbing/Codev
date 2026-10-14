@@ -1,3 +1,7 @@
+import {
+  openInDefaultApp,
+  rememberFilePreview,
+} from "@/modules/reader/defaultApp";
 import { isMarkdownPath } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { redo, undo } from "@codemirror/commands";
@@ -41,7 +45,11 @@ import {
   type TextSearchStatus,
 } from "./lib/textSearch";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
-import { AssetPreview, FilePreviewPane } from "./FilePreviewPane";
+import {
+  AssetPreview,
+  FilePreviewPane,
+  getPreviewKind,
+} from "./FilePreviewPane";
 import { shouldUseLargeStructuredTextPreview } from "./lib/largeStructuredText";
 
 export type EditorPaneHandle = TextSearchHandle & {
@@ -122,6 +130,14 @@ export const EditorPane = memo(
       path,
       onDirtyChange,
     });
+    useEffect(() => {
+      if (doc.status === "binary" || doc.status === "ready") {
+        rememberFilePreview(
+          path,
+          doc.status === "binary" && !getPreviewKind(path),
+        );
+      }
+    }, [path, doc.status]);
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const cmRef = useRef<ReactCodeMirrorRef>(null);
@@ -592,12 +608,21 @@ export const EditorPane = memo(
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
-            {doc.status === "binary" ? "Binary file" : "File too large"}
+            {doc.status === "binary"
+              ? "无法在 Codev 中预览此文件"
+              : "File too large"}
           </div>
           <div className="text-xs text-muted-foreground">
             {formatBytes(doc.size)} ·{" "}
-            {canForce ? "syntax features disabled" : "preview not supported"}
+            {canForce ? "syntax features disabled" : "可使用系统默认应用打开"}
           </div>
+          <button
+            type="button"
+            onClick={() => void openInDefaultApp(path)}
+            className="mt-2 rounded-md border border-border bg-muted/60 px-3 py-1 text-xs text-foreground hover:bg-accent"
+          >
+            用默认应用打开
+          </button>
           {canForce && (
             <button
               type="button"

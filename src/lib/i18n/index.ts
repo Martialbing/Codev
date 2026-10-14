@@ -55,6 +55,7 @@ const ZH: Record<string, string> = {
   "New terminal": "新建终端",
   Normal: "常规",
   Open: "打开",
+  "Open with Default App": "用默认应用打开",
   "Open in Side": "在侧边打开",
   "Close comparison view": "关闭对照视图",
   "Open in Terminal": "在终端中打开",
