@@ -732,6 +732,7 @@ export function CodexTranscript({
   const saved = client.scrollPositions.get(threadId);
   const follow = useRef(saved?.follow ?? true);
   const [atBottom, setAtBottom] = useState(follow.current);
+  const userUntil = useRef(0);
   const [hit, setHit] = useState(0);
   const [jump, setJump] = useState(0);
   const appliedJump = useRef(-1);
@@ -806,7 +807,11 @@ export function CodexTranscript({
   const pause = () => {
     follow.current = false;
     setAtBottom(false);
+    userUntil.current = performance.now() + 1000;
     remember();
+  };
+  const armUserScroll = () => {
+    userUntil.current = performance.now() + 1000;
   };
   /** 翻页前记录高度，新增旧历史后恢复视觉锚点。 */
   const older = () => {
@@ -943,23 +948,32 @@ export function CodexTranscript({
             if (event.deltaY < 0) {
               pause();
               if ((root.current?.scrollTop ?? 0) < 80) older();
-            }
+            } else if (event.deltaY > 0) armUserScroll();
           }}
-          onPointerDown={pause}
+          onPointerDown={(event) => {
+            const node = event.currentTarget;
+            if (
+              event.clientX - node.getBoundingClientRect().left >=
+              node.clientWidth
+            )
+              armUserScroll();
+          }}
           onKeyDown={(event) => {
             if (["PageUp", "ArrowUp", "Home"].includes(event.key)) pause();
+            else if (["PageDown", "ArrowDown", "End", " "].includes(event.key))
+              armUserScroll();
           }}
           onScroll={() => {
             const el = root.current;
             if (!el?.clientHeight) return;
-            if (
-              el.scrollTop > 0 &&
-              el.scrollHeight - el.scrollTop - el.clientHeight < 32 &&
-              !query
-            ) {
+            const userScrolling = performance.now() < userUntil.current;
+            if (userScrolling) userUntil.current = performance.now() + 200;
+            const nearBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+            if (nearBottom && !query) {
               follow.current = true;
               setAtBottom(true);
-            }
+            } else if (userScrolling) pause();
             remember(el);
           }}
         >

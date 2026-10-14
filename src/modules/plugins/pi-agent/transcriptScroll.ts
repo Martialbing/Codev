@@ -19,6 +19,17 @@ export type PiScrollMemory = PiReadingPosition & {
   expanded?: Map<string, boolean>;
 };
 
+/** 贴底则跟随；只有用户正在滚动且离开底部才暂停，程序滚动不能改跟随。 */
+export function followAfterScroll(
+  atBottom: boolean,
+  userScrolling: boolean,
+  follow: boolean,
+) {
+  if (atBottom) return true;
+  if (userScrolling) return false;
+  return follow;
+}
+
 /** Resolve by message identity as a streaming message can move out of its process block. */
 export function readingBlockIndex(
   blocks: PiTimelineBlock[],

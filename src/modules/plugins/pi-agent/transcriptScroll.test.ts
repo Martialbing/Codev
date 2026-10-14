@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readingBlockIndex, readingMeasurements } from "./transcriptScroll";
+import {
+  followAfterScroll,
+  readingBlockIndex,
+  readingMeasurements,
+} from "./transcriptScroll";
 import type { PiTimelineBlock } from "./timeline";
 const message = (id: string): PiTimelineBlock => ({
   id,
@@ -12,6 +16,18 @@ const message = (id: string): PiTimelineBlock => ({
     thinking: "",
     streaming: false,
   },
+});
+
+describe("follow after scroll", () => {
+  it("resumes when the user is back at the bottom", () => {
+    expect(followAfterScroll(true, true, false)).toBe(true);
+  });
+  it("pauses only while the user is scrolling away", () => {
+    expect(followAfterScroll(false, true, true)).toBe(false);
+  });
+  it("keeps live follow across programmatic growth", () => {
+    expect(followAfterScroll(false, false, true)).toBe(true);
+  });
 });
 
 describe("Pi reading anchor", () => {

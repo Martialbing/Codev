@@ -1,9 +1,12 @@
-/** 活跃项临时前置，同类保持原顺序，不修改保存的排序。 */
-export function prioritizeActive<T>(
-  items: T[],
-  isActive: (item: T) => boolean,
-): T[] {
-  return [...items].sort((a, b) => Number(isActive(b)) - Number(isActive(a)));
+/** 新进入运行的项写到保存顺序最前，结束后不再跳回原位。 */
+export function promoteLiveOrder(saved: string[], liveIds: string[]): string[] {
+  if (!liveIds.length) return saved;
+  const rank = new Map(saved.map((item, index) => [item, index]));
+  const next = saved.filter((item) => !liveIds.includes(item));
+  const ordered = [...liveIds].sort(
+    (left, right) => (rank.get(left) ?? -1) - (rank.get(right) ?? -1),
+  );
+  return [...ordered, ...next];
 }
 
 /** 将显示列表的拖拽落点映射回基础顺序，仅移动用户拖拽的项目。 */

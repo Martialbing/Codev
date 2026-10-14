@@ -133,23 +133,22 @@ function NoteRow({
   item,
   index,
   listId,
-  focus,
+  editing,
+  onEdit,
 }: {
   item: NoteItem;
   index: number;
   listId: NoteListId;
-  focus?: boolean;
+  editing: boolean;
+  onEdit: (id: string | null) => void;
 }) {
   const moveNoteItem = useNotePad((state) => state.moveNoteItem);
   const handle = useNoteItemReorder(listId, moveNoteItem);
   const setItemText = useNotePad((state) => state.setItemText);
   const toggleItem = useNotePad((state) => state.toggleItem);
   const removeItem = useNotePad((state) => state.removeItem);
-  const [editing, setEditing] = useState(false);
+  const insertAfter = useNotePad((state) => state.insertAfter);
   const input = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (focus) setEditing(true);
-  }, [focus]);
   useEffect(() => {
     if (editing) input.current?.focus({ preventScroll: true });
   }, [editing]);
@@ -184,7 +183,13 @@ function NoteRow({
             inputRef={input}
             placeholder="待办"
             onChange={(text) => setItemText(item.id, text)}
-            onSubmit={() => setEditing(false)}
+            onSubmit={() => {
+              if (!item.text.trim()) {
+                onEdit(null);
+                return;
+              }
+              onEdit(insertAfter(item.id));
+            }}
           />
         </div>
       ) : (
@@ -193,7 +198,7 @@ function NoteRow({
             <button
               type="button"
               aria-label="编辑待办内容"
-              onClick={() => setEditing(true)}
+              onClick={() => onEdit(item.id)}
               className={`h-5 min-w-0 flex-1 truncate text-left text-[11px] leading-5 ${item.done ? "text-muted-foreground line-through" : "text-foreground"}`}
             >
               {item.text.replace(/\s*\n\s*/g, " · ") || "待办"}
@@ -230,14 +235,16 @@ function ProjectBlock({
   name,
   items,
   index,
-  focusId,
+  editingId,
+  onEdit,
   locked,
 }: {
   id: string;
   name: string;
   items: NoteItem[];
   index: number;
-  focusId: string | null;
+  editingId: string | null;
+  onEdit: (id: string | null) => void;
   locked?: boolean;
 }) {
   const reorderProject = useNotePad((state) => state.reorderProject);
@@ -291,13 +298,7 @@ function ProjectBlock({
           type="button"
           aria-label="新增项目待办"
           className="flex size-5 items-center justify-center text-muted-foreground hover:text-foreground"
-          onClick={() => {
-            const next = addProjectItem(id);
-            if (next)
-              window.dispatchEvent(
-                new CustomEvent("codev-note-focus", { detail: next }),
-              );
-          }}
+          onClick={() => onEdit(addProjectItem(id))}
         >
           <HugeiconsIcon icon={PlusSignIcon} size={11} />
         </button>
@@ -319,7 +320,8 @@ function ProjectBlock({
             item={item}
             index={itemIndex}
             listId={id}
-            focus={focusId === item.id}
+            editing={editingId === item.id}
+            onEdit={onEdit}
           />
         ))}
       </div>
@@ -417,7 +419,7 @@ function resizePanel(origin: PanelBox, edge: Edge, dx: number, dy: number) {
 export function NotepadPopover() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const [focusId, setFocusId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [position, setPosition] = useState(readBubble);
   const [panel, setPanel] = useState(() => readPanel(readBubble()));
   const root = useRef<HTMLDivElement>(null);
@@ -428,6 +430,13 @@ export function NotepadPopover() {
     startY: number;
     originX: number;
     originY: number;
+    moved: boolean;
+  } | null>(null);
+  const panelDrag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    origin: PanelBox;
     moved: boolean;
   } | null>(null);
   const edgeDrag = useRef<{
@@ -452,7 +461,7 @@ export function NotepadPopover() {
   useEffect(() => {
     const onFocus = (event: Event) => {
       const id = (event as CustomEvent<string>).detail;
-      if (id) setFocusId(id);
+      if (id) setEditingId(id);
     };
     window.addEventListener("codev-note-focus", onFocus);
     return () => window.removeEventListener("codev-note-focus", onFocus);
@@ -522,6 +531,39 @@ export function NotepadPopover() {
   };
   const stopEdge = () => {
     edgeDrag.current = null;
+  };
+
+  const startPanelDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    if ((event.target as Element).closest("button")) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const bounds = panelElement.current?.getBoundingClientRect();
+    panelDrag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: bounds
+        ? { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
+        : { ...panel },
+      moved: false,
+    };
+  };
+  const onPanelMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = panelDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const dx = event.clientX - current.startX;
+    const dy = event.clientY - current.startY;
+    if (!current.moved && Math.hypot(dx, dy) < 4) return;
+    current.moved = true;
+    persistPanel({
+      ...current.origin,
+      x: current.origin.x + dx,
+      y: current.origin.y + dy,
+    });
+  };
+  const stopPanelDrag = () => {
+    panelDrag.current = null;
   };
 
   const submitInbox = (event?: FormEvent) => {
@@ -610,7 +652,12 @@ export function NotepadPopover() {
             // A saved height is a scroll limit, never space to fill with blank rows.
             maxHeight: panel.h,
           }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            const target = event.target as Element;
+            if (!target.closest("[data-note-item], textarea, input, button"))
+              setEditingId(null);
+          }}
         >
           <button
             type="button"
@@ -660,7 +707,13 @@ export function NotepadPopover() {
             onPointerUp={stopEdge}
             onPointerCancel={stopEdge}
           />
-          <div className="flex shrink-0 items-center gap-1 pb-1.5">
+          <div
+            className="flex shrink-0 cursor-grab items-center gap-1 pb-1.5 active:cursor-grabbing"
+            onPointerDown={startPanelDrag}
+            onPointerMove={onPanelMove}
+            onPointerUp={stopPanelDrag}
+            onPointerCancel={stopPanelDrag}
+          >
             <span className="min-w-0 flex-1 truncate px-1 text-[11px] font-medium">
               记事本
             </span>
@@ -675,6 +728,7 @@ export function NotepadPopover() {
                   size="icon-xs"
                   className="size-6"
                   aria-label="快捷键"
+                  onPointerDown={(event) => event.stopPropagation()}
                 >
                   <HugeiconsIcon icon={HelpCircleIcon} size={12} />
                 </Button>
@@ -684,7 +738,7 @@ export function NotepadPopover() {
                 align="end"
                 className="z-[100] rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] text-popover-foreground shadow-md"
               >
-                Enter 提交 · Ctrl+Enter 换行
+                底部 Enter 提交 · 条目 Enter 新建下一条 · Ctrl+Enter 换行
               </TooltipContent>
             </Tooltip>
             <Button
@@ -694,6 +748,7 @@ export function NotepadPopover() {
               className="size-6"
               aria-label="新增项目"
               title="新增项目"
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={() => addProject("新项目")}
             >
               <HugeiconsIcon icon={PlusSignIcon} size={12} />
@@ -710,7 +765,8 @@ export function NotepadPopover() {
                 name={project.name}
                 items={project.items}
                 index={index}
-                focusId={focusId}
+                editingId={editingId}
+                onEdit={setEditingId}
                 locked={project.locked}
               />
             ))}

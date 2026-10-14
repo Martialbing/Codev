@@ -817,6 +817,7 @@ export function PiTranscript({
     expanded,
     bottom: scrollBottom,
     interact: pauseFollow,
+    armUserScroll,
     loadEarlier,
     onScroll,
   } = usePiTranscriptScroll({
@@ -967,27 +968,27 @@ export function PiTranscript({
           data-testid="pi-transcript"
           className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none]"
           onWheel={(event) => {
-            pauseFollow();
-            if (event.deltaY < 0) loadEarlier();
-          }}
-          onPointerDown={pauseFollow}
-          onTouchStart={pauseFollow}
-          onKeyDown={(event) => {
-            if (
-              [
-                "PageUp",
-                "PageDown",
-                "ArrowUp",
-                "ArrowDown",
-                "Home",
-                "End",
-                " ",
-              ].includes(event.key)
-            ) {
+            if (event.deltaY < 0) {
               pauseFollow();
-              if (["PageUp", "ArrowUp", "Home"].includes(event.key))
-                loadEarlier();
-            }
+              loadEarlier();
+            } else if (event.deltaY > 0) armUserScroll();
+          }}
+          onPointerDown={(event) => {
+            const node = event.currentTarget;
+            if (
+              event.clientX - node.getBoundingClientRect().left >=
+              node.clientWidth
+            )
+              armUserScroll();
+          }}
+          onKeyDown={(event) => {
+            if (["PageUp", "ArrowUp", "Home"].includes(event.key)) {
+              pauseFollow();
+              loadEarlier();
+            } else if (
+              ["PageDown", "ArrowDown", "End", " "].includes(event.key)
+            )
+              armUserScroll();
           }}
           onScroll={onScroll}
         >

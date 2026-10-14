@@ -37,7 +37,7 @@ import type { CodexClient, Snapshot } from "./client";
 import type { Session } from "./protocol";
 import { Tool } from "./controls";
 import { useCodexSidebarReorder } from "./useCodexSidebarReorder";
-import { prioritizeActive, moveDisplayedItem } from "../sidebarOrder";
+import { moveDisplayedItem, promoteLiveOrder } from "../sidebarOrder";
 import { exportMarkdown } from "./export";
 import { homeDir } from "@tauri-apps/api/path";
 import {
@@ -223,11 +223,7 @@ export function CodexSidebar({
         string,
         (typeof state.sessions)[string][]
       >();
-      const sessionIds = prioritizeActive(
-        ordered(state.order, layout.sessionOrder, true),
-        (id) =>
-          !state.sessions[id].archived && sessionIsActive(state.sessions[id]),
-      );
+      const sessionIds = ordered(state.order, layout.sessionOrder, true);
       for (const cwd of [...layout.projects, ...(state.historyProjects ?? [])])
         if (!layout.hidden.includes(pathKey(cwd)))
           projectMap.set(pathKey(cwd), cwd);
@@ -273,6 +269,30 @@ export function CodexSidebar({
         : current;
     });
   }, [state.sessions, state.historyProjects]);
+  const knownLive = useRef<Set<string> | null>(null);
+  const liveKey = sessionIds
+    .filter((id) => {
+      const session = state.sessions[id];
+      return !!session && !session.archived && sessionIsActive(session);
+    })
+    .join("\0");
+  useEffect(() => {
+    const live = liveKey ? liveKey.split("\0") : [];
+    if (!knownLive.current) {
+      knownLive.current = new Set(live);
+      return;
+    }
+    const newly = live.filter((id) => !knownLive.current?.has(id));
+    knownLive.current = new Set(live);
+    if (!newly.length) return;
+    setLayout((current) => ({
+      ...current,
+      sessionOrder: promoteLiveOrder(
+        ordered(state.order, current.sessionOrder, true),
+        newly,
+      ),
+    }));
+  }, [liveKey, state.order]);
   const query = filter.trim().toLowerCase();
   /** 只有用户展开项目时读取该目录历史，显示已保存入口不触发读取。 */
   const loadProject = (cwd: string, archived = false) => {

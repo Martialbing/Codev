@@ -57,11 +57,11 @@ import {
 import type { PiSessionSummary, PiViewStatus } from "./types";
 import type { PiSubagentRun } from "./native";
 import { cwdIsLive, threadIsLive } from "./projectActivity";
-import { prioritizeActive, moveDisplayedItem } from "../sidebarOrder";
+import { moveDisplayedItem, promoteLiveOrder } from "../sidebarOrder";
 import { usePiSidebarReorder } from "./usePiSidebarReorder";
+import { collectPiUnreadStatusChanges } from "./subagentUnread";
 import {
   applyUnreadStatusChanges,
-  collectUnreadStatusChanges,
   hasUnreadTask,
   markTaskRead as markUnreadTaskRead,
   subscribeUnreadTasks,
@@ -128,6 +128,7 @@ export function PiSidebar(props: Props) {
   const workbenchEnabled = usePluginStore((state) => state.enabled.browser);
   const { width, onWidthChange: setWidth } = props;
   const previousTaskStatus = useRef(new Map<string, string>());
+  const loadedSubagentParents = useRef(new Set<string>());
   const [unreadRevision, setUnreadRevision] = useState(0);
   useEffect(
     () => subscribeUnreadTasks(() => setUnreadRevision((value) => value + 1)),
@@ -135,17 +136,11 @@ export function PiSidebar(props: Props) {
   );
   /** 记录本次界面观测到的终轮完成，只有点击对应任务才清除。 */
   useEffect(() => {
-    const tasks = props.threads.flatMap((thread) => [
-      { key: thread.key, status: thread.status ?? "", child: false },
-      ...(thread.subagents ?? []).map((run) => ({
-        key: run.runId,
-        status: run.status,
-        child: true,
-      })),
-    ]);
     applyUnreadStatusChanges(
-      collectUnreadStatusChanges(previousTaskStatus.current, tasks, (key) =>
-        unreadTaskId("pi", key),
+      collectPiUnreadStatusChanges(
+        previousTaskStatus.current,
+        loadedSubagentParents.current,
+        props.threads,
       ),
     );
   }, [props.threads]);
@@ -257,15 +252,13 @@ export function PiSidebar(props: Props) {
     identities.map(([, id]) => id),
   );
   /** 用同一显示顺序渲染线程和计算拖拽落点。 */
-  const orderedThreads = (rows: SidebarThread[], archived = false) => {
-    const ordered = applySavedOrder(
+  const orderedThreads = (rows: SidebarThread[]) =>
+    applySavedOrder(
       rows.map((row) => sessionIdentity(row.path, row.key)),
       sessionOrder,
     ).map(
       (id) => rows.find((row) => sessionIdentity(row.path, row.key) === id)!,
     );
-    return archived ? ordered : prioritizeActive(ordered, threadIsLive);
-  };
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const { position, ghost, itemProps } = usePiSidebarReorder(
@@ -324,6 +317,7 @@ export function PiSidebar(props: Props) {
         }
       : undefined,
   );
+  const knownLive = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (props.organizationReady === false) return;
     if (sessionOrder.join("\0") === props.sessionOrder.join("\0")) return;
@@ -340,6 +334,33 @@ export function PiSidebar(props: Props) {
     identities,
     sessionOrder,
   ]);
+  const liveKey = props.threads
+    .filter(
+      (thread) =>
+        !isArchivedPath(thread.path, archived) && threadIsLive(thread),
+    )
+    .map((thread) => sessionIdentity(thread.path, thread.key))
+    .join("\0");
+  useEffect(() => {
+    if (props.organizationReady === false) return;
+    const live = liveKey ? liveKey.split("\0") : [];
+    if (!knownLive.current) {
+      knownLive.current = new Set(live);
+      return;
+    }
+    const newly = live.filter((id) => !knownLive.current?.has(id));
+    knownLive.current = new Set(live);
+    if (!newly.length) return;
+    props.onSessionOrder((current) =>
+      promoteLiveOrder(
+        pinSessionOrder(
+          adoptOrderIds(current, identities),
+          identities.map(([, id]) => id),
+        ),
+        newly,
+      ),
+    );
+  }, [liveKey, identities, props.organizationReady, props.onSessionOrder]);
   const revealedKey = useRef<string | null>(null);
   // 新建或分叉只定位一次，等待目标行挂载；流式更新不会重复抢滚动。
   useLayoutEffect(() => {
@@ -660,7 +681,7 @@ export function PiSidebar(props: Props) {
           .includes(filter.toLocaleLowerCase()),
     );
     if (isArchived && !rows.length) return null;
-    const ordered = orderedThreads(rows, isArchived);
+    const ordered = orderedThreads(rows);
     const visible = ordered.slice(
       0,
       filter ? ordered.length : (counts[nodeKey] ?? SESSION_PAGE),
@@ -722,7 +743,7 @@ export function PiSidebar(props: Props) {
     const projectIndex = groupProjects.findIndex(
       (path) => pathKey(path) === key,
     );
-    const ordered = orderedThreads(rows, isArchived);
+    const ordered = orderedThreads(rows);
     const visible = ordered.slice(
       0,
       filter ? ordered.length : (counts[nodeKey] ?? SESSION_PAGE),

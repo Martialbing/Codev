@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { PiTimelineBlock } from "./timeline";
 import {
+  followAfterScroll,
   readingBlockIndex,
   readingMeasurements,
   type PiReadingPosition,
@@ -191,6 +192,11 @@ export function usePiTranscriptScroll({
     userUntil.current = performance.now() + 1000;
     remember();
   };
+  /** 用户在拖滚动条或向下滚时，让 onScroll 判断是否贴回底部。 */
+  const armUserScroll = () => {
+    restoring.current = null;
+    userUntil.current = performance.now() + 1000;
+  };
   const loadEarlier = () => {
     const node = viewport.current;
     const state = live.current;
@@ -227,15 +233,14 @@ export function usePiTranscriptScroll({
       return;
     const node = viewport.current;
     if (!node) return;
-    if (performance.now() < userUntil.current) {
-      userUntil.current = performance.now() + 200;
-      const atBottom =
-        node.scrollTop > 0 &&
-        node.scrollHeight - node.clientHeight - node.scrollTop < 32;
-      follow.current = atBottom;
-      setFollowing(atBottom);
-      if (!atBottom) loadEarlier();
-    }
+    const userScrolling = performance.now() < userUntil.current;
+    if (userScrolling) userUntil.current = performance.now() + 200;
+    const atBottom =
+      node.scrollHeight - node.clientHeight - node.scrollTop < 32;
+    const next = followAfterScroll(atBottom, userScrolling, follow.current);
+    follow.current = next;
+    setFollowing(next);
+    if (userScrolling && !next) loadEarlier();
     remember();
   };
 
@@ -399,6 +404,7 @@ export function usePiTranscriptScroll({
     expanded,
     bottom,
     interact,
+    armUserScroll,
     loadEarlier,
     onScroll,
   };

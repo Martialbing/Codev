@@ -524,7 +524,7 @@ export function PiAgentPane({
       .map((session) => ({
         ...session,
         key: session.path,
-        subagents: subagentRuns[subagentOwnerKey(session.path)] ?? [],
+        subagents: subagentRuns[subagentOwnerKey(session.path)],
       }));
     for (const thread of threads) {
       const path = thread.view.sessionFile ?? "";
@@ -555,8 +555,7 @@ export function PiAgentPane({
             ? "running"
             : thread.view.status,
         waiting: requests.some((request) => request.key === thread.key),
-        subagents:
-          subagentRuns[subagentOwnerKey(path || old?.path || "")] ?? [],
+        subagents: subagentRuns[subagentOwnerKey(path || old?.path || "")],
       };
       if (index >= 0) result[index] = row;
       else if (

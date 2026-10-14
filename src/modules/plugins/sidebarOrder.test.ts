@@ -1,20 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { moveDisplayedItem, prioritizeActive } from "./sidebarOrder";
+import { moveDisplayedItem, promoteLiveOrder } from "./sidebarOrder";
 
 describe("侧栏活跃排序", () => {
-  it("在分页前提升运行项，结束后恢复基础顺序", () => {
-    const base = ["a", "b", "c", "d", "e", "running", "waiting"];
-    const active = new Set(["running", "waiting"]);
-    expect(prioritizeActive(base, (id) => active.has(id)).slice(0, 5)).toEqual([
-      "running",
-      "waiting",
-      "a",
-      "b",
-      "c",
-    ]);
-    active.clear();
-    expect(prioritizeActive(base, (id) => active.has(id))).toEqual(base);
-    expect(base[5]).toBe("running");
+  it("开始运行时写入最前，结束后保持该位置", () => {
+    const saved = ["a", "b", "c", "d", "e", "running", "waiting"];
+    const promoted = promoteLiveOrder(saved, ["running", "waiting"]);
+    expect(promoted.slice(0, 5)).toEqual(["running", "waiting", "a", "b", "c"]);
+    expect(promoteLiveOrder(promoted, [])).toEqual(promoted);
   });
   it("拖拽只移动目标项，不把临时上浮顺序写回", () => {
     const base = ["a", "b", "c", "running", "hidden"];
