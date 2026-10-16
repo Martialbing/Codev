@@ -778,12 +778,17 @@ export function CodexTranscript({
   });
   const size = virtual.getTotalSize();
   const highlightKey = `codex-search-${session.thread.id}`;
-  /** 发送与返回底部重新启用追底。 */
+  /** 发送与返回底部重新启用追底。已在底部附近不再写 scrollTop，避免测量循环。 */
   const bottom = () => {
     follow.current = true;
     setAtBottom(true);
-    if (turns.length) virtual.scrollToIndex(turns.length - 1, { align: "end" });
-    if (root.current) root.current.scrollTop = root.current.scrollHeight;
+    const node = root.current;
+    if (
+      node &&
+      turns.length &&
+      node.scrollHeight - node.clientHeight - node.scrollTop >= 32
+    )
+      virtual.scrollToIndex(turns.length - 1, { align: "end" });
     client.scrollPositions.set(threadId, { top: 0, follow: true });
   };
   /** 主动阅读立即停止追底。折叠视口的假 0 不覆盖已记下的位置。 */
@@ -847,7 +852,16 @@ export function CodexTranscript({
     ) {
       root.current.scrollTop += size - olderHeight.current;
       olderHeight.current = null;
-    } else if (follow.current && !query) bottom();
+    } else if (
+      follow.current &&
+      !query &&
+      root.current &&
+      root.current.scrollHeight -
+        root.current.clientHeight -
+        root.current.scrollTop >=
+        32
+    )
+      bottom();
     else if (!follow.current && root.current) {
       const position = client.scrollPositions.get(threadId);
       if (

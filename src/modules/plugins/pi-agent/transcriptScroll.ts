@@ -30,6 +30,14 @@ export function followAfterScroll(
   return follow;
 }
 
+/** 已在底部附近时不要再写 scrollTop，避免测量循环。 */
+export function isNearBottom(
+  node: { scrollHeight: number; clientHeight: number; scrollTop: number },
+  slack = 32,
+) {
+  return node.scrollHeight - node.clientHeight - node.scrollTop < slack;
+}
+
 /** Resolve by message identity as a streaming message can move out of its process block. */
 export function readingBlockIndex(
   blocks: PiTimelineBlock[],

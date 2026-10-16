@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { PiTimelineBlock } from "./timeline";
 import {
   followAfterScroll,
+  isNearBottom,
   readingBlockIndex,
   readingMeasurements,
   type PiReadingPosition,
@@ -162,12 +163,11 @@ export function usePiTranscriptScroll({
   };
   const pinBottom = () => {
     const node = viewport.current;
-    if (!node || !visible()) return;
-    if (live.current.blocks.length)
-      virtualizer.scrollToIndex(live.current.blocks.length - 1, {
-        align: "end",
-      });
-    node.scrollTop = node.scrollHeight;
+    if (!node || !visible() || isNearBottom(node)) return;
+    if (!live.current.blocks.length) return;
+    virtualizer.scrollToIndex(live.current.blocks.length - 1, {
+      align: "end",
+    });
   };
   const bottom = () => {
     restoring.current = null;
@@ -235,8 +235,7 @@ export function usePiTranscriptScroll({
     if (!node) return;
     const userScrolling = performance.now() < userUntil.current;
     if (userScrolling) userUntil.current = performance.now() + 200;
-    const atBottom =
-      node.scrollHeight - node.clientHeight - node.scrollTop < 32;
+    const atBottom = isNearBottom(node);
     const next = followAfterScroll(atBottom, userScrolling, follow.current);
     follow.current = next;
     setFollowing(next);
@@ -251,9 +250,18 @@ export function usePiTranscriptScroll({
     positions.set(threadKey, memory);
     let frame = 0;
     let stable = 0;
+    let attempts = 0;
     let previousTarget = Number.NaN;
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(tick);
+    };
+    const finishRestore = () => {
+      restoring.current = null;
+      loadingOlder.current = false;
+      userUntil.current = 0;
+      stable = 0;
+      attempts = 0;
+      latest.current.remember();
     };
     const tick = () => {
       frame = 0;
@@ -266,6 +274,7 @@ export function usePiTranscriptScroll({
       if (!wasVisible.current) {
         wasVisible.current = true;
         stable = 0;
+        attempts = 0;
         restoring.current = {
           top: memory.top,
           follow: memory.follow,
@@ -285,60 +294,58 @@ export function usePiTranscriptScroll({
         if (!live.current.blocks.length) return;
         if (position.follow) {
           latest.current.pinBottom();
-        } else {
-          const index = readingBlockIndex(live.current.blocks, position);
-          const row =
-            index >= 0 ? virtualizer.measurementsCache[index] : undefined;
-          let target = position.top;
-          if (row && position.anchor) {
-            target =
-              row.start +
-              Math.min(position.anchor.offset, Math.max(0, row.size - 1));
-            const element = content.current?.querySelector<HTMLElement>(
-              `[data-index="${index}"]`,
-            );
-            const item =
-              element &&
-              [...element.querySelectorAll<HTMLElement>("[data-pi-text]")].find(
-                (entry) =>
-                  entry.dataset.piText === position.anchor?.itemId &&
-                  entry.getBoundingClientRect().height > 0,
-              );
-            if (item && position.anchor.itemOffset !== undefined) {
-              const rect = node.getBoundingClientRect();
-              const scale = rect.height / node.offsetHeight || 1;
-              target =
-                node.scrollTop +
-                (item.getBoundingClientRect().top - rect.top) / scale +
-                position.anchor.itemOffset;
-            }
-          }
-          const reachable = Math.max(
-            0,
-            Math.min(target, node.scrollHeight - node.clientHeight),
+          finishRestore();
+          return;
+        }
+        const index = readingBlockIndex(live.current.blocks, position);
+        const row =
+          index >= 0 ? virtualizer.measurementsCache[index] : undefined;
+        let target = position.top;
+        if (row && position.anchor) {
+          target =
+            row.start +
+            Math.min(position.anchor.offset, Math.max(0, row.size - 1));
+          const element = content.current?.querySelector<HTMLElement>(
+            `[data-index="${index}"]`,
           );
-          if (Math.abs(node.scrollTop - reachable) > 1)
-            virtualizer.scrollToOffset(target);
-          const mounted =
-            index < 0 ||
-            !!content.current?.querySelector(`[data-index="${index}"]`);
-          stable =
-            mounted &&
-            Math.abs(previousTarget - reachable) < 1 &&
-            Math.abs(node.scrollTop - reachable) < 1
-              ? stable + 1
-              : 0;
-          previousTarget = reachable;
-          if (stable < 3) {
-            schedule();
-            return;
+          const item =
+            element &&
+            [...element.querySelectorAll<HTMLElement>("[data-pi-text]")].find(
+              (entry) =>
+                entry.dataset.piText === position.anchor?.itemId &&
+                entry.getBoundingClientRect().height > 0,
+            );
+          if (item && position.anchor.itemOffset !== undefined) {
+            const rect = node.getBoundingClientRect();
+            const scale = rect.height / node.offsetHeight || 1;
+            target =
+              node.scrollTop +
+              (item.getBoundingClientRect().top - rect.top) / scale +
+              position.anchor.itemOffset;
           }
         }
-        restoring.current = null;
-        loadingOlder.current = false;
-        userUntil.current = 0;
-        stable = 0;
-        latest.current.remember();
+        const reachable = Math.max(
+          0,
+          Math.min(target, node.scrollHeight - node.clientHeight),
+        );
+        if (Math.abs(node.scrollTop - reachable) > 1)
+          virtualizer.scrollToOffset(target);
+        const mounted =
+          index < 0 ||
+          !!content.current?.querySelector(`[data-index="${index}"]`);
+        stable =
+          mounted &&
+          Math.abs(previousTarget - reachable) < 1 &&
+          Math.abs(node.scrollTop - reachable) < 1
+            ? stable + 1
+            : 0;
+        previousTarget = reachable;
+        attempts += 1;
+        if (stable < 3 && attempts < 12) {
+          schedule();
+          return;
+        }
+        finishRestore();
       }
     };
     wake.current = schedule;
@@ -366,10 +373,8 @@ export function usePiTranscriptScroll({
   });
   useLayoutEffect(() => {
     const node = viewport.current;
-    const body = content.current;
-    if (!node || !body) return;
+    if (!node) return;
     const observer = new ResizeObserver(() => {
-      wake.current();
       if (!latest.current.visible()) {
         wasVisible.current = false;
         return;
@@ -386,13 +391,13 @@ export function usePiTranscriptScroll({
           anchor: memory.anchor && { ...memory.anchor },
         };
         remeasureVisibleRows();
+        wake.current();
         return;
       }
       if (follow.current) latest.current.pinBottom();
       latest.current.remember();
     });
     observer.observe(node);
-    observer.observe(body);
     return () => observer.disconnect();
   }, []);
 

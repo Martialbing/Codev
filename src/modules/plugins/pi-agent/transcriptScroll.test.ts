@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   followAfterScroll,
+  isNearBottom,
   readingBlockIndex,
   readingMeasurements,
 } from "./transcriptScroll";
@@ -27,6 +28,19 @@ describe("follow after scroll", () => {
   });
   it("keeps live follow across programmatic growth", () => {
     expect(followAfterScroll(false, false, true)).toBe(true);
+  });
+});
+
+describe("near bottom", () => {
+  it("treats slack as already pinned", () => {
+    expect(
+      isNearBottom({ scrollHeight: 1000, clientHeight: 400, scrollTop: 580 }),
+    ).toBe(true);
+  });
+  it("does not pin when the reader has left the bottom", () => {
+    expect(
+      isNearBottom({ scrollHeight: 1000, clientHeight: 400, scrollTop: 200 }),
+    ).toBe(false);
   });
 });
 

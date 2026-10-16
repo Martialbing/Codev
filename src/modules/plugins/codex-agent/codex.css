@@ -13,7 +13,7 @@
 .codex-title { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:text; text-align:left; }
 .codex-title-input { width:100%; min-width:0; background:var(--background); border:1px solid var(--border); border-radius:4px; padding:3px 6px; }
 .codex-transcript-wrap { position:relative; display:flex; flex-direction:column; flex:1; min-height:0; }
-.codex-transcript { flex:1; min-height:0; overflow:auto; padding:8px 16px; overflow-wrap:anywhere; overflow-anchor:none; outline:none; }
+.codex-transcript { flex:1; min-height:0; overflow:auto; padding:8px 16px; overflow-wrap:anywhere; overflow-anchor:none; outline:none; scrollbar-gutter:stable; }
 .codex-transcript-content { width:100%; max-width:768px; margin:auto; }
 .codex-message { margin:8px 0; }
 .codex-user-turn { display:flex; flex-direction:column; align-items:flex-end; }

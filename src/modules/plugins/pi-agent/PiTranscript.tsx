@@ -966,7 +966,7 @@ export function PiTranscript({
           ref={viewport}
           tabIndex={0}
           data-testid="pi-transcript"
-          className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none]"
+          className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none] [scrollbar-gutter:stable]"
           onWheel={(event) => {
             if (event.deltaY < 0) {
               pauseFollow();
