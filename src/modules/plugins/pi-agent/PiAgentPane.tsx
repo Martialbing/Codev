@@ -1374,8 +1374,10 @@ export function PiAgentPane({
                   data-pi-viewport-index={paneIndex}
                   className={`flex min-h-0 flex-col rounded-md border border-dashed ${dropViewport === paneIndex ? "border-primary bg-accent/40" : "border-border"}`}
                 >
-                  <div className="flex h-7 items-center gap-1 px-2 text-[11px] text-muted-foreground">
-                    <span className="min-w-0 flex-1">视口 {paneIndex + 1}</span>
+                  <div className="flex h-7 items-center gap-1 px-2 text-[10px] text-muted-foreground">
+                    <span className="min-w-0 flex-1 max-w-[140px] truncate">
+                      视口 {paneIndex + 1}
+                    </span>
                     <button
                       type="button"
                       className="size-5 shrink-0 rounded hover:bg-accent"
@@ -1485,7 +1487,7 @@ export function PiAgentPane({
                       ) : (
                         <button
                           type="button"
-                          className="min-w-0 flex-1 truncate text-left"
+                          className="min-w-0 flex-1 text-left"
                           title="双击重命名会话"
                           onDoubleClick={() => {
                             const thread = rows.find(
@@ -1498,11 +1500,21 @@ export function PiAgentPane({
                               });
                           }}
                         >
-                          {view.sessionName ||
-                            rows.find((row) => row.key === paneKey)?.name ||
-                            rows.find((row) => row.key === paneKey)?.preview ||
-                            `视口 ${paneIndex + 1}`}
-                          {activeCwd ? ` (${projectName(activeCwd)})` : ""}
+                          <span
+                            className={`inline-block max-w-[180px] truncate rounded-md px-1.5 py-0.5 text-[10px] ${
+                              view.status === "running" ||
+                              view.status === "stopping"
+                                ? "pi-viewport-title-running"
+                                : "pi-viewport-title-idle"
+                            }`}
+                          >
+                            {view.sessionName ||
+                              rows.find((row) => row.key === paneKey)?.name ||
+                              rows.find((row) => row.key === paneKey)
+                                ?.preview ||
+                              `视口 ${paneIndex + 1}`}
+                            {activeCwd ? ` (${projectName(activeCwd)})` : ""}
+                          </span>
                         </button>
                       )}
                       <button

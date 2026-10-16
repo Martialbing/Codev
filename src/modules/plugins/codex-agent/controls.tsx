@@ -98,7 +98,15 @@ export function Title({
         }
       }}
     >
-      {title} <span className="text-muted-foreground">({project})</span>
+      <span
+        className={`inline-block max-w-[180px] truncate rounded-md px-1.5 py-0.5 text-[10px] ${
+          session.busy
+            ? "codex-viewport-title-running"
+            : "codex-viewport-title-idle"
+        }`}
+      >
+        {title} <span className="text-muted-foreground">({project})</span>
+      </span>
     </button>
   );
 }

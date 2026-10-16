@@ -1,0 +1,71 @@
+/* Frost: one native backdrop, lightweight shared surfaces, local blur for overlays. */
+html[data-theme-material="frosted-glass"] {
+  --frost-tint: rgb(242 245 249 / 40%);
+  --frost-surface: rgb(255 255 255 / 12%);
+  --frost-raised: rgb(250 253 255 / 68%);
+  --frost-edge: rgb(255 255 255 / 58%);
+  --frost-shadow: 0 8px 32px rgb(24 45 68 / 12%);
+  --background: transparent !important;
+  --card: var(--frost-surface) !important;
+  --sidebar: var(--frost-surface) !important;
+  --popover: var(--frost-raised) !important;
+  --terminal-background: transparent !important;
+  --border: rgb(75 105 135 / 18%) !important;
+  background: transparent !important;
+}
+html.dark[data-theme-material="frosted-glass"] {
+  --frost-tint: rgb(28 31 36 / 55%);
+  --frost-surface: transparent;
+  --frost-raised: rgb(28 35 46 / 78%);
+  --frost-edge: rgb(220 237 255 / 18%);
+  --frost-shadow: 0 8px 32px rgb(0 0 0 / 22%);
+  --background: transparent !important;
+  --card: transparent !important;
+  --sidebar: transparent !important;
+  --border: rgb(215 233 255 / 14%) !important;
+}
+html[data-theme-material="frosted-glass"] body {
+  background: transparent !important;
+}
+html[data-theme-material="frosted-glass"] :is(#root, #settings-root) {
+  background: linear-gradient(165deg, rgb(255 255 255 / 5%), transparent 48%, rgb(0 0 0 / 3%)), var(--frost-tint) !important;
+  box-shadow: inset 0 1px 0 var(--frost-edge), inset 0 -1px 0 rgb(0 0 0 / 12%);
+  /* DWM owns the outer curve; a second 12px clip exposes an acrylic crescent. */
+  border-radius: 0 !important;
+}
+html[data-theme-material="frosted-glass"] [data-frost="setting"] {
+  background: var(--frost-surface);
+  box-shadow: inset 0 1px 0 var(--frost-edge), 0 2px 6px rgb(0 0 0 / 3%);
+}
+/* A visible fallback when native translucency is unavailable. */
+html[data-theme-material="frosted-glass"]:not([data-native-glass="true"]) body {
+  background: radial-gradient(ellipse at 5% 10%, #bbd8e7, transparent 65%),
+    radial-gradient(ellipse at 95% 90%, #dbceeb, transparent 65%), #e3ebee !important;
+}
+html.dark[data-theme-material="frosted-glass"]:not([data-native-glass="true"]) body {
+  background: radial-gradient(ellipse at 5% 10%, #294653, transparent 65%),
+    radial-gradient(ellipse at 95% 90%, #3c354c, transparent 65%), #18202a !important;
+}
+html[data-theme-material="frosted-glass"] :is(.cm-editor, .cm-scroller, .cm-gutters, .xterm, .xterm-viewport, .xterm-screen) {
+  background: transparent !important;
+}
+html[data-theme-material="frosted-glass"] .bg-card {
+  background-color: var(--frost-surface) !important;
+}
+html[data-theme-material="frosted-glass"] .bg-background {
+  background-color: transparent !important;
+}
+html[data-theme-material="frosted-glass"] :is(.bg-popover, .bg-muted, .bg-secondary) {
+  background-color: color-mix(in srgb, var(--frost-surface) 72%, transparent) !important;
+}
+
+html[data-theme-material="frosted-glass"] :is([data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="tooltip-content"]) {
+  background: var(--frost-raised) !important;
+  backdrop-filter: blur(24px) saturate(125%);
+  border: 1px solid var(--frost-edge);
+  box-shadow: var(--frost-shadow), inset 0 1px 0 var(--frost-edge);
+}
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  html[data-theme-material="frosted-glass"] body { background: #eef2f6 !important; }
+  html.dark[data-theme-material="frosted-glass"] body { background: #1b222b !important; }
+}

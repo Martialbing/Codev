@@ -40,8 +40,22 @@ export type TerminalPalette = Partial<{
   fontWeight: string;
   fontSize: number;
   ansi: readonly [
-    string, string, string, string, string, string, string, string,
-    string, string, string, string, string, string, string, string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
   ];
 }>;
 
@@ -55,6 +69,8 @@ export type Theme = {
   name: string;
   author?: string;
   description?: string;
+  /** Visual material applied by the shell around the theme colors. */
+  material?: "solid" | "frosted-glass";
   variants: {
     light?: ThemeVariant;
     dark?: ThemeVariant;
@@ -65,4 +81,4 @@ export type Theme = {
   };
 };
 
-export const DEFAULT_THEME_ID = "codev-default";
+export const DEFAULT_THEME_ID = "frosted-glass";

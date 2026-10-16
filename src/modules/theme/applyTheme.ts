@@ -63,7 +63,9 @@ let lastApplied: string | null = null;
 
 export function applyTheme(theme: Theme, mode: ThemeMode): void {
   const root = document.documentElement;
-  const variant = theme.variants[mode] ?? theme.variants.dark ?? theme.variants.light;
+  root.dataset.themeMaterial = theme.material ?? "solid";
+  const variant =
+    theme.variants[mode] ?? theme.variants.dark ?? theme.variants.light;
   if (!variant) {
     clearTheme();
     return;
@@ -79,6 +81,7 @@ export function applyTheme(theme: Theme, mode: ThemeMode): void {
 export function clearTheme(): void {
   if (lastApplied === null) return;
   const root = document.documentElement;
+  if (lastApplied !== null) delete root.dataset.themeMaterial;
   for (const v of ALL_VARS) root.style.removeProperty(v);
   lastApplied = null;
 }
@@ -91,10 +94,13 @@ function writeColors(root: HTMLElement, c: ThemeColors): void {
 }
 
 function writeTerminal(root: HTMLElement, t: TerminalPalette): void {
-  if (t.background) root.style.setProperty("--terminal-background", t.background);
-  if (t.foreground) root.style.setProperty("--terminal-foreground", t.foreground);
+  if (t.background)
+    root.style.setProperty("--terminal-background", t.background);
+  if (t.foreground)
+    root.style.setProperty("--terminal-foreground", t.foreground);
   if (t.cursor) root.style.setProperty("--terminal-cursor", t.cursor);
-  if (t.cursorAccent) root.style.setProperty("--terminal-cursor-accent", t.cursorAccent);
+  if (t.cursorAccent)
+    root.style.setProperty("--terminal-cursor-accent", t.cursorAccent);
   if (t.selection) root.style.setProperty("--terminal-selection", t.selection);
   if (t.ansi) {
     for (let i = 0; i < ANSI_VARS.length && i < t.ansi.length; i++) {

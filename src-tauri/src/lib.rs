@@ -1,4 +1,6 @@
 pub mod modules;
+#[cfg(target_os = "windows")]
+mod window_material;
 
 use modules::{browser, codex_agent, fs, git, github, history, pi_agent, pty, voice, workspace};
 use std::path::PathBuf;
@@ -375,6 +377,17 @@ fn install_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+/// Apply material only to the invoking application window.
+#[tauri::command]
+fn set_window_material(window: tauri::WebviewWindow, glass: bool, dark: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        window_material::apply(&window, glass, dark)
+    }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = (window, glass, dark); Ok(false) }
+}
+
 /// 打开并居中单页面设置窗口。
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -413,13 +426,12 @@ async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    // Linux keeps the transparent custom chrome; Windows stays opaque so the
-    // installed and portable builds use the same low-composition path.
+    // Both custom-chrome windows support the same native glass material.
     #[cfg(target_os = "linux")]
     let builder = builder.decorations(false).transparent(true);
 
     #[cfg(target_os = "windows")]
-    let builder = builder.decorations(false);
+    let builder = builder.decorations(false).transparent(true);
 
     let window = builder.build().map_err(|e| e.to_string())?;
     // Tauri's unstable child-webview path skips the Windows resize handler.
@@ -573,6 +585,7 @@ pub fn run() {
             get_launch_files,
             get_pending_open_targets,
             open_settings_window,
+            set_window_material,
             history::history_suggest,
             history::history_commands,
             history::history_record,

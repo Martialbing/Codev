@@ -1,9 +1,9 @@
 import { DEFAULT_THEME_ID, type Theme } from "../types";
-import { catppuccin } from "./catppuccin";
+import { frostedGlass } from "./frosted-glass";
 import { codiumDark } from "./codium-dark";
 import { codevDefault } from "./codev-default";
 
-const BUILTIN: Theme[] = [codevDefault, codiumDark, catppuccin];
+const BUILTIN: Theme[] = [frostedGlass, codiumDark, codevDefault];
 
 const BY_ID = new Map<string, Theme>(BUILTIN.map((t) => [t.id, t]));
 

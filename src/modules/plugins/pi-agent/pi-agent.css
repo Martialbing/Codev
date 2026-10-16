@@ -153,3 +153,47 @@
 }
 
 .pi-agent .pi-markdown ul, .pi-agent .pi-markdown ol { padding-inline-start: 1.5rem; list-style-position: outside; }
+
+/* 视口标题包络动画 */
+.pi-viewport-title-running {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1.5px solid transparent;
+  background: linear-gradient(var(--background), var(--background)) padding-box,
+    linear-gradient(90deg, hsl(210 60% 62%), hsl(210 50% 50%), hsl(210 60% 62%)) border-box;
+  background-size: 100% 100%, 200% 100%;
+  animation: pi-viewport-border-scroll 1.2s linear infinite;
+}
+
+.pi-viewport-title-idle {
+  display: inline-flex;
+  align-items: center;
+  border: 1.5px solid hsl(210 45% 58% / 20%);
+}
+
+@keyframes pi-viewport-border-scroll {
+  to { background-position: 0 0, -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-viewport-title-running { animation: none; }
+}
+
+/* Codex 视口标题包络动画（复用相同样式）*/
+.codex-viewport-title-running {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1.5px solid transparent;
+  background: linear-gradient(var(--background), var(--background)) padding-box,
+    linear-gradient(90deg, hsl(210 60% 62%), hsl(210 50% 50%), hsl(210 60% 62%)) border-box;
+  background-size: 100% 100%, 200% 100%;
+  animation: pi-viewport-border-scroll 1.2s linear infinite;
+}
+
+.codex-viewport-title-idle {
+  display: inline-flex;
+  align-items: center;
+  border: 1.5px solid hsl(210 45% 58% / 20%);
+}

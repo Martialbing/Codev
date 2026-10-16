@@ -11,6 +11,7 @@ type Props = {
 export function SettingRow({ title, description, children, className }: Props) {
   return (
     <div
+      data-frost="setting"
       className={cn(
         "flex items-start justify-between gap-3 rounded-md border border-border/60 bg-card/60 px-2.5 py-2",
         className,
