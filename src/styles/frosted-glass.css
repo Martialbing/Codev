@@ -59,7 +59,7 @@ html[data-theme-material="frosted-glass"] :is(.bg-popover, .bg-muted, .bg-second
   background-color: color-mix(in srgb, var(--frost-surface) 72%, transparent) !important;
 }
 
-html[data-theme-material="frosted-glass"] :is([data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="tooltip-content"]) {
+html[data-theme-material="frosted-glass"] :is([data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="menubar-content"], [data-slot="menubar-sub-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="tooltip-content"]) {
   background: var(--frost-raised) !important;
   backdrop-filter: blur(24px) saturate(125%);
   border: 1px solid var(--frost-edge);
