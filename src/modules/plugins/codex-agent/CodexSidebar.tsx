@@ -480,7 +480,6 @@ export function CodexSidebar({
                 aria-label="线程名称"
                 className="h-8 min-w-0 flex-1 text-xs"
                 value={inline.name}
-                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) =>
                   setInline({ ...inline, name: event.target.value })
                 }

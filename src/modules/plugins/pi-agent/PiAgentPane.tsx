@@ -312,6 +312,7 @@ export function PiAgentPane({
     thread: SidebarThread;
     name: string;
   } | null>(null);
+  const viewportRenameInput = useRef<HTMLInputElement>(null);
   const [maximizedViewport, setMaximizedViewport] = useState<number | null>(
     null,
   );
@@ -1135,6 +1136,13 @@ export function PiAgentPane({
     setViewportRename(null);
     if (name.trim()) run(commitRename(thread, name.trim()), thread.key);
   };
+  useEffect(() => {
+    if (!viewportRename) return;
+    const node = viewportRenameInput.current;
+    if (!node) return;
+    node.focus();
+    node.select();
+  }, [viewportRename?.thread.key]);
   const renameThread = async () => {
     if (!rename?.name.trim()) return;
     await commitRename(rename.thread, rename.name.trim());
@@ -1458,14 +1466,10 @@ export function PiAgentPane({
                     <div className="flex h-7 shrink-0 items-center gap-1 border-b border-border/60 bg-muted/30 px-2 text-[11px]">
                       {viewportRename?.thread.key === paneKey ? (
                         <input
-                          ref={(node) => {
-                            node?.focus();
-                            node?.select();
-                          }}
+                          ref={viewportRenameInput}
                           aria-label="重命名 Pi 视口"
                           className="h-5 min-w-0 flex-1 rounded-sm border border-border bg-background px-1 text-[11px] outline-none focus:border-primary/60"
                           value={viewportRename.name}
-                          onFocus={(event) => event.currentTarget.select()}
                           onChange={(event) =>
                             setViewportRename({
                               thread: viewportRename.thread,
