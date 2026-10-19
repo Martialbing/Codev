@@ -16,12 +16,13 @@ html[data-theme-material="frosted-glass"] {
 html.dark[data-theme-material="frosted-glass"] {
   --frost-tint: rgb(28 31 36 / 55%);
   --frost-surface: transparent;
-  --frost-raised: rgb(28 35 46 / 78%);
+  --frost-raised: rgb(28 35 46 / 86%);
   --frost-edge: rgb(220 237 255 / 18%);
   --frost-shadow: 0 8px 32px rgb(0 0 0 / 22%);
   --background: transparent !important;
   --card: transparent !important;
   --sidebar: transparent !important;
+  --popover: var(--frost-raised) !important;
   --border: rgb(215 233 255 / 14%) !important;
 }
 html[data-theme-material="frosted-glass"] body {
@@ -55,11 +56,10 @@ html[data-theme-material="frosted-glass"] .bg-card {
 html[data-theme-material="frosted-glass"] .bg-background {
   background-color: transparent !important;
 }
-html[data-theme-material="frosted-glass"] :is(.bg-popover, .bg-muted, .bg-secondary) {
-  background-color: color-mix(in srgb, var(--frost-surface) 72%, transparent) !important;
+html[data-theme-material="frosted-glass"] :is(.bg-muted, .bg-secondary) {
+  background-color: color-mix(in srgb, var(--frost-raised) 32%, transparent) !important;
 }
-
-html[data-theme-material="frosted-glass"] :is([data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="menubar-content"], [data-slot="menubar-sub-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="tooltip-content"]) {
+html[data-theme-material="frosted-glass"] :is(.bg-popover, [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"], [data-slot="menubar-content"], [data-slot="menubar-sub-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="hover-card-content"], [data-slot="tooltip-content"], [data-slot="command"]) {
   background: var(--frost-raised) !important;
   backdrop-filter: blur(24px) saturate(125%);
   border: 1px solid var(--frost-edge);

@@ -589,7 +589,7 @@ export function NotepadPopover() {
           aria-label="记事本"
           title="记事本"
           aria-expanded={open}
-          className="pointer-events-auto relative flex size-7 cursor-grab items-center justify-center rounded-full border border-border/70 bg-popover text-muted-foreground shadow-md hover:text-foreground active:cursor-grabbing"
+          className="pointer-events-auto relative flex size-7 cursor-grab items-center justify-center rounded-full border border-border/70 bg-popover text-[#7aa8c4] shadow-md hover:text-[#93bbd4] active:cursor-grabbing dark:text-[#8eb6d4] dark:hover:text-[#a6cceb]"
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             drag.current = {
