@@ -4,6 +4,7 @@ mod window_material;
 
 use modules::{browser, codex_agent, fs, git, github, history, pi_agent, pty, voice, workspace};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -69,7 +70,54 @@ fn open_external_browser(uri: &str) {
 
 /// unstable 下主 WebView 按比例跟随窗口。无边框窗口最小化时客户区不是 0×0，
 /// 而是约 160×28 的系统图标尺寸，低于左右栏最小宽度后会被当成真实折叠。
-/// 已最小化，或尺寸小于窗口最小限制时不同步主 WebView，恢复后再按真实尺寸铺满。
+/// 已最小化，或尺寸小于窗口最小限制时不同步主 WebView。
+/// 从任务栏点回来后若仍停在图标尺寸，原生侧直接拉回默认大小。
+#[cfg(target_os = "windows")]
+fn main_window_below_min_size(
+    window: &tauri::WebviewWindow<tauri::Wry>,
+    size: tauri::PhysicalSize<u32>,
+) -> bool {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let min_width = (420.0 * scale).round() as u32;
+    let min_height = (280.0 * scale).round() as u32;
+    size.width < min_width || size.height < min_height
+}
+
+#[cfg(target_os = "windows")]
+fn restore_collapsed_main_window(
+    window: &tauri::WebviewWindow<tauri::Wry>,
+    size: tauri::PhysicalSize<u32>,
+    unminimize: bool,
+) -> bool {
+    if !main_window_below_min_size(window, size) {
+        return false;
+    }
+    static RESTORING: AtomicBool = AtomicBool::new(false);
+    if RESTORING.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    log::warn!(
+        "[Codev] restore collapsed main window from {}x{} to 800x600",
+        size.width,
+        size.height
+    );
+    if unminimize {
+        let _ = window.unminimize();
+    }
+    let restored = match window.set_size(tauri::LogicalSize::new(800.0, 600.0)) {
+        Ok(()) => {
+            let _ = window.show();
+            true
+        }
+        Err(error) => {
+            log::warn!("[Codev] restore main window size failed: {error}");
+            false
+        }
+    };
+    RESTORING.store(false, Ordering::SeqCst);
+    restored
+}
+
 #[cfg(target_os = "windows")]
 fn keep_main_webview_on_minimize(
     app: &tauri::AppHandle,
@@ -82,21 +130,26 @@ fn keep_main_webview_on_minimize(
         log::warn!("[Codev] disable main webview auto resize failed: {error}");
         return;
     }
+    if let Ok(size) = main.inner_size() {
+        let _ = restore_collapsed_main_window(main, size, true);
+    }
     let window = main.clone();
-    main.on_window_event(move |event| {
-        if let tauri::WindowEvent::Resized(size) = event {
+    main.on_window_event(move |event| match event {
+        tauri::WindowEvent::Resized(size) => {
             let minimized = window.is_minimized().unwrap_or(false);
-            let scale = window.scale_factor().unwrap_or(1.0);
-            let min_width = (420.0 * scale).round() as u32;
-            let min_height = (280.0 * scale).round() as u32;
-            let too_small = size.width < min_width || size.height < min_height;
+            let too_small = main_window_below_min_size(&window, *size);
             log::info!(
-                "[Codev] main webview resize {}x{} scale={scale:.2} minimized={minimized} skip={}",
+                "[Codev] main webview resize {}x{} scale={:.2} minimized={minimized} skip={}",
                 size.width,
                 size.height,
+                window.scale_factor().unwrap_or(1.0),
                 minimized || too_small
             );
-            if minimized || too_small {
+            if minimized {
+                return;
+            }
+            if too_small {
+                let _ = restore_collapsed_main_window(&window, *size, false);
                 return;
             }
             let _ = webview.set_bounds(tauri::Rect {
@@ -104,6 +157,15 @@ fn keep_main_webview_on_minimize(
                 size: (*size).into(),
             });
         }
+        tauri::WindowEvent::Focused(true) => {
+            if window.is_minimized().unwrap_or(false) {
+                return;
+            }
+            if let Ok(size) = window.inner_size() {
+                let _ = restore_collapsed_main_window(&window, size, false);
+            }
+        }
+        _ => {}
     });
 }
 
