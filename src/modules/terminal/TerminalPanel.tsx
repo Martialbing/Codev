@@ -38,6 +38,7 @@ import {
   closeViewportSlot,
   growViewportSlots,
   shrinkViewportSlots,
+  swapViewportSlots,
 } from "@/lib/viewportSlots";
 import { usePluginStore } from "@/modules/plugins/store";
 import { useWorkbench } from "@/modules/plugins/workbench/store";
@@ -347,6 +348,11 @@ export function TerminalPanel({
               onSelect={selectTerminal}
               onClearViewport={clearViewport}
               onCloseViewport={closeViewport}
+              onSwapViewports={(from, to) => {
+                setViewSlots((slots) => swapViewportSlots(slots, from, to));
+                const movedId = viewSlots[from];
+                if (movedId !== null) selectTerminal(movedId);
+              }}
               onRename={onRename}
               onDuplicate={(cwd) => createTerminal(cwd, true)}
               onClose={onClose}

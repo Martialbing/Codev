@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type HTMLAttributes,
+} from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,9 +41,11 @@ export function Tool({
 export function Title({
   session,
   client,
+  drag,
 }: {
   session: Session;
   client: CodexClient;
+  drag?: HTMLAttributes<HTMLButtonElement>;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -83,8 +91,9 @@ export function Title({
   ) : (
     <button
       type="button"
-      className="codex-title"
+      className={`codex-title ${drag ? "cursor-grab touch-none" : ""}`}
       title={`${title} (${session.thread.cwd})`}
+      {...drag}
       onDoubleClick={() => {
         committing.current = false;
         setValue(title);

@@ -36,3 +36,21 @@ export function focusAfterViewportChange(
   if (current > removed) return Math.min(current - 1, last);
   return Math.min(current, last);
 }
+
+/** 交换两个格子的内容，越界或同一格时原样返回。 */
+export function swapViewportSlots<T>(slots: T[], from: number, to: number): T[] {
+  if (
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= slots.length ||
+    to >= slots.length
+  ) {
+    return slots;
+  }
+  const next = [...slots];
+  const source = next[from];
+  next[from] = next[to];
+  next[to] = source;
+  return next;
+}

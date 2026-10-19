@@ -2,7 +2,14 @@ import { WorkbenchContent } from "@/modules/plugins/workbench/WorkbenchContent";
 import { useWorkbench } from "@/modules/plugins/workbench/store";
 import type { Tab } from "@/modules/tabs";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   Copy01Icon,
   Cancel01Icon,
@@ -28,6 +35,7 @@ type Props = {
   onSelect: (id: number) => void;
   onClearViewport: (index: number) => void;
   onCloseViewport: (index: number) => void;
+  onSwapViewports: (from: number, to: number) => void;
   onRename: (id: number, title: string) => void;
   onDuplicate: (cwd?: string) => void;
   onClose: (id: number) => void;
@@ -58,6 +66,7 @@ export function TerminalStack({
   onSelect,
   onClearViewport,
   onCloseViewport,
+  onSwapViewports,
   onRename,
   onDuplicate,
   onClose,
@@ -84,6 +93,110 @@ export function TerminalStack({
   const workbench = useWorkbench();
   const terminals = useMemo(() => selectLiveTerminals(tabs), [tabs]);
   const multi = viewSlots.length > 1;
+  const [titleHover, setTitleHover] = useState<number | null>(null);
+  const titleDrag = useRef<{
+    pointerId: number;
+    from: number;
+    x: number;
+    y: number;
+    active: boolean;
+    target: HTMLElement;
+    sourceId: number;
+  } | null>(null);
+  const suppressTitleClick = useRef(false);
+  const canDragTerminalTitles =
+    multi && maximizedViewport === null && rename === null;
+  const endTerminalTitleDrag = () => {
+    const current = titleDrag.current;
+    titleDrag.current = null;
+    if (current?.target.hasPointerCapture(current.pointerId)) {
+      current.target.releasePointerCapture(current.pointerId);
+    }
+    setTitleHover(null);
+    document.body.style.userSelect = "";
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && titleDrag.current) {
+        suppressTitleClick.current = titleDrag.current.active;
+        endTerminalTitleDrag();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const startTerminalTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    from: number,
+    sourceId: number,
+  ) => {
+    if (
+      !canDragTerminalTitles ||
+      event.button !== 0 ||
+      (event.target as HTMLElement).closest("input")
+    )
+      return;
+    suppressTitleClick.current = false;
+    titleDrag.current = {
+      pointerId: event.pointerId,
+      from,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      target: event.currentTarget,
+      sourceId,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveTerminalTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current.active) {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)
+        return;
+      current.active = true;
+      document.body.style.userSelect = "none";
+    }
+    event.preventDefault();
+    const node = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-terminal-viewport-index]");
+    setTitleHover(
+      node?.dataset.terminalViewportIndex === undefined
+        ? null
+        : Number(node.dataset.terminalViewportIndex),
+    );
+  };
+  const finishTerminalTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.active) {
+      suppressTitleClick.current = true;
+      const node = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-terminal-viewport-index]");
+      if (node?.dataset.terminalViewportIndex !== undefined) {
+        const to = Number(node.dataset.terminalViewportIndex);
+        if (to !== current.from && to < viewSlots.length) {
+          onSwapViewports(current.from, to);
+          if (current.sourceId >= 0) onSelect(current.sourceId);
+        }
+      }
+    }
+    endTerminalTitleDrag();
+  };
+  const captureTerminalTitleClick = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    if (!suppressTitleClick.current) return;
+    suppressTitleClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
   useEffect(() => {
     if (maximizedViewport !== null) setMaximizedViewport(null);
   }, [viewSlots]);
@@ -184,7 +297,7 @@ export function TerminalStack({
             key={t.id}
             data-terminal-tab={t.id}
             data-terminal-viewport-index={position >= 0 ? position : undefined}
-            className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${multi ? "rounded-md border border-border" : ""} ${dropViewport === position ? "ring-2 ring-primary/60" : ""}`}
+            className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${multi ? "rounded-md border border-border" : ""} ${dropViewport === position || titleHover === position ? "ring-2 ring-primary/60" : ""}`}
           >
             {multi && (
               <div
@@ -220,8 +333,13 @@ export function TerminalStack({
                 ) : (
                   <button
                     type="button"
-                    className="min-w-0 flex-1 truncate text-left"
-                    onClick={() => onSelect(t.id)}
+                    className={`min-w-0 flex-1 truncate text-left ${
+                      canDragTerminalTitles ? "cursor-grab touch-none" : ""
+                    }`}
+                    onClick={() => {
+                      if (suppressTitleClick.current) return;
+                      onSelect(t.id);
+                    }}
                     onDoubleClick={() =>
                       setRename({
                         id: t.id,
@@ -229,6 +347,17 @@ export function TerminalStack({
                       })
                     }
                     title={labelFor(t)}
+                    onPointerDown={(event) =>
+                      startTerminalTitleDrag(event, position, t.id)
+                    }
+                    onPointerMove={moveTerminalTitleDrag}
+                    onPointerUp={finishTerminalTitleDrag}
+                    onPointerCancel={endTerminalTitleDrag}
+                    onLostPointerCapture={() => {
+                      if (titleDrag.current) endTerminalTitleDrag();
+                    }}
+                    onClickCapture={captureTerminalTitleClick}
+                    onDragStart={(event) => event.preventDefault()}
                   >
                     {labelFor(t)}
                   </button>
@@ -319,12 +448,28 @@ export function TerminalStack({
             <div
               key={`empty-${index}`}
               data-terminal-viewport-index={index}
-              className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-dashed ${dropViewport === index ? "border-primary ring-2 ring-primary/40" : "border-border"}`}
+              className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-dashed ${dropViewport === index || titleHover === index ? "border-primary ring-2 ring-primary/40" : "border-border"}`}
             >
               <div className="flex h-6 shrink-0 items-center gap-1 border-b border-border/60 px-2 text-[11px] text-muted-foreground">
-                <span className="min-w-0 flex-1 truncate">
+                <button
+                  type="button"
+                  className={`min-w-0 flex-1 truncate text-left ${
+                    canDragTerminalTitles ? "cursor-grab touch-none" : ""
+                  }`}
+                  onPointerDown={(event) =>
+                    startTerminalTitleDrag(event, index, -1)
+                  }
+                  onPointerMove={moveTerminalTitleDrag}
+                  onPointerUp={finishTerminalTitleDrag}
+                  onPointerCancel={endTerminalTitleDrag}
+                  onLostPointerCapture={() => {
+                    if (titleDrag.current) endTerminalTitleDrag();
+                  }}
+                  onClickCapture={captureTerminalTitleClick}
+                  onDragStart={(event) => event.preventDefault()}
+                >
                   视口 {index + 1}
-                </span>
+                </button>
                 <button
                   type="button"
                   aria-label={

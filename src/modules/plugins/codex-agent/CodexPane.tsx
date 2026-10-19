@@ -5,6 +5,9 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type HTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -47,6 +50,7 @@ import {
   focusAfterViewportChange,
   growViewportSlots,
   shrinkViewportSlots,
+  swapViewportSlots,
 } from "@/lib/viewportSlots";
 
 /** 只恢复视口数量；启动不读取旧会话，等待用户选择。 */
@@ -163,6 +167,121 @@ function Workspace({
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
+  const [titleHover, setTitleHover] = useState<number | null>(null);
+  const titleDrag = useRef<{
+    pointerId: number;
+    from: number;
+    x: number;
+    y: number;
+    active: boolean;
+    target: HTMLElement;
+    sourceId: string | null;
+  } | null>(null);
+  const suppressTitleClick = useRef(false);
+  const canDragCodexTitles = slots.length > 1 && maximizedViewport === null;
+  const endCodexTitleDrag = () => {
+    const current = titleDrag.current;
+    titleDrag.current = null;
+    if (current?.target.hasPointerCapture(current.pointerId)) {
+      current.target.releasePointerCapture(current.pointerId);
+    }
+    setTitleHover(null);
+    document.body.style.userSelect = "";
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && titleDrag.current) {
+        suppressTitleClick.current = titleDrag.current.active;
+        endCodexTitleDrag();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const startCodexTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    from: number,
+    sourceId: string | null,
+  ) => {
+    if (
+      !canDragCodexTitles ||
+      event.button !== 0 ||
+      (event.target as HTMLElement).closest("input")
+    )
+      return;
+    suppressTitleClick.current = false;
+    titleDrag.current = {
+      pointerId: event.pointerId,
+      from,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      target: event.currentTarget,
+      sourceId,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveCodexTitleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current.active) {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)
+        return;
+      current.active = true;
+      document.body.style.userSelect = "none";
+    }
+    event.preventDefault();
+    const node = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-codex-slot]");
+    setTitleHover(
+      node && node.dataset.codexSlot ? Number(node.dataset.codexSlot) : null,
+    );
+  };
+  const finishCodexTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.active) {
+      suppressTitleClick.current = true;
+      const node = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-codex-slot]");
+      if (node && node.dataset.codexSlot) {
+        const to = Number(node.dataset.codexSlot);
+        if (to !== current.from && to < slots.length) {
+          setSlots((currentSlots) =>
+            swapViewportSlots(currentSlots, current.from, to),
+          );
+          setFocused(to);
+        }
+      }
+    }
+    endCodexTitleDrag();
+  };
+  const captureCodexTitleClick = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    if (!suppressTitleClick.current) return;
+    suppressTitleClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  const titleDragProps = (
+    index: number,
+    id: string | null,
+  ): HTMLAttributes<HTMLButtonElement> => ({
+    onPointerDown: (event) => startCodexTitleDrag(event, index, id),
+    onPointerMove: moveCodexTitleDrag,
+    onPointerUp: finishCodexTitleDrag,
+    onPointerCancel: endCodexTitleDrag,
+    onLostPointerCapture: () => {
+      if (titleDrag.current) endCodexTitleDrag();
+    },
+    onClickCapture: captureCodexTitleClick,
+    onDragStart: (event) => event.preventDefault(),
+  });
   const [viewportWidth, setViewportWidth] = useState(0);
   const workbenchSlots = useWorkbench((state) => state.slots);
   const workbenchTargets = useWorkbench((state) => state.targets);
@@ -491,7 +610,7 @@ function Workspace({
                 key={id ?? `empty-${index}`}
                 data-codex-slot={index}
                 data-codex-viewport-key={id ?? ""}
-                className={`codex-slot ${focused === index ? "codex-focused" : ""} ${hover === index ? "codex-drop-target" : ""}`}
+                className={`codex-slot ${focused === index ? "codex-focused" : ""} ${hover === index || titleHover === index ? "codex-drop-target" : ""}`}
                 onPointerDown={() => {
                   if (index < slots.length) setFocused(index);
                 }}
@@ -506,7 +625,15 @@ function Workspace({
                     <div className="codex-viewport">
                       {multi && index < slots.length && (
                         <header className="codex-viewport-header">
-                          <Title session={session} client={client} />
+                          <Title
+                            session={session}
+                            client={client}
+                            drag={
+                              canDragCodexTitles
+                                ? titleDragProps(index, id)
+                                : undefined
+                            }
+                          />
                           <Tool
                             icon={
                               maximizedViewport === index
@@ -576,9 +703,17 @@ function Workspace({
                   <div className="codex-empty">
                     {multi && (
                       <>
-                        <span className="text-xs text-muted-foreground">
+                        <button
+                          type="button"
+                          className={`text-xs text-muted-foreground ${
+                            canDragCodexTitles ? "cursor-grab touch-none" : ""
+                          }`}
+                          {...(canDragCodexTitles
+                            ? titleDragProps(index, null)
+                            : {})}
+                        >
                           视口 {index + 1}
-                        </span>
+                        </button>
                         <button
                           type="button"
                           className="text-xs text-muted-foreground"

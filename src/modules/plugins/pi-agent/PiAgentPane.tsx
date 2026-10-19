@@ -2,7 +2,15 @@ import {
   useAgentProjectRequest,
   finishAgentProjectRequest,
 } from "../agentProjectRequest";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -154,6 +162,7 @@ import {
   focusAfterViewportChange,
   growViewportSlots,
   shrinkViewportSlots,
+  swapViewportSlots,
 } from "@/lib/viewportSlots";
 import { MAX_PI_VIEWPORTS, placePiSession } from "./viewportLayout";
 import "./pi-agent.css";
@@ -316,6 +325,106 @@ export function PiAgentPane({
   const [maximizedViewport, setMaximizedViewport] = useState<number | null>(
     null,
   );
+  const titleDrag = useRef<{
+    pointerId: number;
+    from: number;
+    x: number;
+    y: number;
+    active: boolean;
+    target: HTMLElement;
+    sourceKey: string | null;
+  } | null>(null);
+  const suppressTitleClick = useRef(false);
+  const canDragPiTitles =
+    viewportKeys.length > 1 && maximizedViewport === null && !viewportRename;
+  const endPiTitleDrag = () => {
+    const current = titleDrag.current;
+    titleDrag.current = null;
+    if (current?.target.hasPointerCapture(current.pointerId)) {
+      current.target.releasePointerCapture(current.pointerId);
+    }
+    setDropViewport(null);
+    document.body.style.userSelect = "";
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && titleDrag.current) {
+        suppressTitleClick.current = titleDrag.current.active;
+        endPiTitleDrag();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const startPiTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    from: number,
+    sourceKey: string | null,
+  ) => {
+    if (
+      !canDragPiTitles ||
+      event.button !== 0 ||
+      (event.target as HTMLElement).closest("input")
+    )
+      return;
+    suppressTitleClick.current = false;
+    titleDrag.current = {
+      pointerId: event.pointerId,
+      from,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      target: event.currentTarget,
+      sourceKey,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const movePiTitleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current.active) {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)
+        return;
+      current.active = true;
+      document.body.style.userSelect = "none";
+    }
+    event.preventDefault();
+    const node = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-pi-viewport-index]");
+    setDropViewport(
+      node && node.dataset.piViewportIndex
+        ? Number(node.dataset.piViewportIndex)
+        : null,
+    );
+  };
+  const finishPiTitleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = titleDrag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.active) {
+      suppressTitleClick.current = true;
+      const node = document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest<HTMLElement>("[data-pi-viewport-index]");
+      if (node && node.dataset.piViewportIndex) {
+        const to = Number(node.dataset.piViewportIndex);
+        if (to !== current.from && to < viewportKeys.length) {
+          setViewportKeys((slots) =>
+            swapViewportSlots(slots, current.from, to),
+          );
+          setActiveViewport(to);
+          setSelected(current.sourceKey);
+        }
+      }
+    }
+    endPiTitleDrag();
+  };
+  const capturePiTitleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!suppressTitleClick.current) return;
+    suppressTitleClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
   const [requests, setRequests] = useState<ExtensionRequest[]>([]);
   const [answer, setAnswer] = useState("");
   const [extensionStatus, setExtensionStatus] = useState<
@@ -1383,9 +1492,25 @@ export function PiAgentPane({
                   className={`flex min-h-0 flex-col rounded-md border border-dashed ${dropViewport === paneIndex ? "border-primary bg-accent/40" : "border-border"}`}
                 >
                   <div className="flex h-7 items-center gap-1 px-2 text-[10px] text-muted-foreground">
-                    <span className="min-w-0 flex-1 max-w-[140px] truncate">
+                    <button
+                      type="button"
+                      className={`min-w-0 flex-1 max-w-[140px] truncate text-left ${
+                        canDragPiTitles ? "cursor-grab touch-none" : ""
+                      }`}
+                      onPointerDown={(event) =>
+                        startPiTitleDrag(event, paneIndex, null)
+                      }
+                      onPointerMove={movePiTitleDrag}
+                      onPointerUp={finishPiTitleDrag}
+                      onPointerCancel={endPiTitleDrag}
+                      onLostPointerCapture={() => {
+                        if (titleDrag.current) endPiTitleDrag();
+                      }}
+                      onClickCapture={capturePiTitleClick}
+                      onDragStart={(event) => event.preventDefault()}
+                    >
                       视口 {paneIndex + 1}
-                    </span>
+                    </button>
                     <button
                       type="button"
                       className="size-5 shrink-0 rounded hover:bg-accent"
@@ -1491,8 +1616,21 @@ export function PiAgentPane({
                       ) : (
                         <button
                           type="button"
-                          className="min-w-0 flex-1 text-left"
+                          className={`min-w-0 flex-1 text-left ${
+                            canDragPiTitles ? "cursor-grab touch-none" : ""
+                          }`}
                           title="双击重命名会话"
+                          onPointerDown={(event) =>
+                            startPiTitleDrag(event, paneIndex, paneKey)
+                          }
+                          onPointerMove={movePiTitleDrag}
+                          onPointerUp={finishPiTitleDrag}
+                          onPointerCancel={endPiTitleDrag}
+                          onLostPointerCapture={() => {
+                            if (titleDrag.current) endPiTitleDrag();
+                          }}
+                          onClickCapture={capturePiTitleClick}
+                          onDragStart={(event) => event.preventDefault()}
                           onDoubleClick={() => {
                             const thread = rows.find(
                               (row) => row.key === paneKey,

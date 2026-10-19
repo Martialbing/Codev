@@ -6,6 +6,7 @@ import {
   clearViewportSlot,
   closeViewportSlot,
   growViewportSlots,
+  swapViewportSlots,
 } from "@/lib/viewportSlots";
 
 function openWorkbench() {
@@ -63,17 +64,8 @@ export const useWorkbench = create<State>((set, get) => ({
   close: (index) => set({ slots: closeViewportSlot(get().slots, index) }),
   remove: (index) => get().clear(index),
   swap: (from, to) => {
-    const slots = [...get().slots];
-    if (
-      from === to ||
-      from < 0 ||
-      to < 0 ||
-      from >= slots.length ||
-      to >= slots.length
-    )
-      return;
-    [slots[from], slots[to]] = [slots[to], slots[from]];
-    set({ slots });
+    const slots = swapViewportSlots(get().slots, from, to);
+    if (slots !== get().slots) set({ slots });
   },
   append: () => {
     if (get().slots.length >= MAX_VIEWPORTS)

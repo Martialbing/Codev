@@ -3,7 +3,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type PointerEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -46,16 +47,30 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
   const [maximized, setMaximized] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const drag = useRef<{
+    pointerId: number;
     from: number;
     x: number;
     y: number;
     active: boolean;
+    target: HTMLElement;
   } | null>(null);
+  const suppressClick = useRef(false);
   const count = Math.max(1, slots.length);
   const columns =
     count > 4 || (count >= 3 && width >= 1200) ? 3 : Math.min(2, count);
   const zoom =
     maximized !== null && maximized < slots.length ? maximized : null;
+  const canDragTitles = count > 1 && zoom === null;
+  const endTitleDrag = () => {
+    const current = drag.current;
+    drag.current = null;
+    if (current?.target.hasPointerCapture(current.pointerId)) {
+      current.target.releasePointerCapture(current.pointerId);
+    }
+    setHover(null);
+    useWorkbench.setState({ moving: false });
+    document.body.style.userSelect = "";
+  };
   useEffect(() => {
     useWorkbench.setState({ visible });
     return () => useWorkbench.setState({ visible: false, moving: false });
@@ -66,11 +81,19 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
   useEffect(() => setMaximized(null), [topology]);
   useEffect(() => {
     const finish = () => useWorkbench.setState({ moving: false });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && drag.current) {
+        suppressClick.current = drag.current.active;
+        endTitleDrag();
+      }
+    };
     window.addEventListener("pointerup", finish);
     window.addEventListener("pointercancel", finish);
+    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("keydown", onKey);
     };
   }, []);
   const addBrowser = () => {
@@ -79,37 +102,58 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
       .add({ kind: "browser", id: crypto.randomUUID(), title: "网页" });
     setMaximized(null);
   };
-  const startDrag = (event: PointerEvent<HTMLButtonElement>, from: number) => {
-    if (event.button !== 0) return;
+  const startTitleDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    from: number,
+  ) => {
+    if (!canDragTitles || event.button !== 0) return;
+    suppressClick.current = false;
+    drag.current = {
+      pointerId: event.pointerId,
+      from,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      target: event.currentTarget,
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { from, x: event.clientX, y: event.clientY, active: false };
   };
-  const moveDrag = (event: PointerEvent<HTMLButtonElement>) => {
+  const moveTitleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const current = drag.current;
-    if (!current) return;
-    if (
-      Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6 &&
-      !current.active
-    )
-      return;
-    current.active = true;
-    useWorkbench.setState({ moving: true });
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (!current.active) {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6)
+        return;
+      current.active = true;
+      useWorkbench.setState({ moving: true });
+      document.body.style.userSelect = "none";
+    }
+    event.preventDefault();
     const node = document
       .elementFromPoint(event.clientX, event.clientY)
       ?.closest<HTMLElement>("[data-workbench-slot]");
     setHover(node ? Number(node.dataset.workbenchSlot) : null);
   };
-  const finishDrag = (event: PointerEvent<HTMLButtonElement>) => {
+  const finishTitleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const current = drag.current;
-    if (current?.active) {
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.active) {
+      suppressClick.current = true;
       const node = document
         .elementFromPoint(event.clientX, event.clientY)
         ?.closest<HTMLElement>("[data-workbench-slot]");
-      if (node) swap(current.from, Number(node.dataset.workbenchSlot));
+      if (node) {
+        const to = Number(node.dataset.workbenchSlot);
+        if (to !== current.from) swap(current.from, to);
+      }
     }
-    drag.current = null;
-    setHover(null);
-    useWorkbench.setState({ moving: false });
+    endTitleDrag();
+  };
+  const captureTitleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!suppressClick.current) return;
+    suppressClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
   };
   return (
     <div
@@ -162,16 +206,18 @@ export function WorkbenchPane({ visible }: { visible: boolean }) {
               <header className="flex h-7 shrink-0 items-center gap-1 bg-muted/30 px-2">
                 <button
                   type="button"
-                  title="拖动交换视口"
-                  className="min-w-0 flex-1 cursor-grab touch-none truncate text-left text-xs"
-                  onPointerDown={(event) => startDrag(event, index)}
-                  onPointerMove={moveDrag}
-                  onPointerUp={finishDrag}
-                  onPointerCancel={() => {
-                    drag.current = null;
-                    setHover(null);
-                    useWorkbench.setState({ moving: false });
+                  title="按住拖到其他视口"
+                  className={`min-w-0 flex-1 truncate text-left text-xs ${
+                    canDragTitles ? "cursor-grab touch-none" : ""
+                  }`}
+                  onPointerDown={(event) => startTitleDrag(event, index)}
+                  onPointerMove={moveTitleDrag}
+                  onPointerUp={finishTitleDrag}
+                  onPointerCancel={endTitleDrag}
+                  onLostPointerCapture={() => {
+                    if (drag.current) endTitleDrag();
                   }}
+                  onClickCapture={captureTitleClick}
                 >
                   {source
                     ? source.kind === "browser"
