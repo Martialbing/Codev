@@ -117,9 +117,7 @@ export const LANGUAGES: LanguageDefinition[] = [
     extensions: ["f", "f90", "f95", "f03", "f08", "for"],
     loader: () =>
       defineLanguage(
-        import("@codemirror/legacy-modes/mode/fortran").then(
-          (m) => m.fortran,
-        ),
+        import("@codemirror/legacy-modes/mode/fortran").then((m) => m.fortran),
       ),
     userSelectable: true,
   },
@@ -133,59 +131,48 @@ export const LANGUAGES: LanguageDefinition[] = [
   {
     name: "SQL",
     extensions: ["sql"],
-    loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.standardSQL),
-      ),
+    loader: () => import("@codemirror/lang-sql").then((m) => m.sql()),
     userSelectable: true,
   },
   {
     name: "PostgreSQL",
     extensions: ["psql", "pgsql"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.pgSQL),
+      import("@codemirror/lang-sql").then((m) =>
+        m.sql({ dialect: m.PostgreSQL }),
       ),
   },
   {
     name: "MySQL",
     extensions: ["mysql"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.mySQL),
-      ),
+      import("@codemirror/lang-sql").then((m) => m.sql({ dialect: m.MySQL })),
   },
   {
     name: "SQLite",
     extensions: ["sqlite"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.sqlite),
-      ),
+      import("@codemirror/lang-sql").then((m) => m.sql({ dialect: m.SQLite })),
   },
   {
     name: "MariaDB",
     extensions: ["mariadb"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.mariaDB),
+      import("@codemirror/lang-sql").then((m) =>
+        m.sql({ dialect: m.MariaSQL }),
       ),
   },
   {
     name: "MSSQL",
     extensions: ["mssql"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.msSQL),
-      ),
+      import("@codemirror/lang-sql").then((m) => m.sql({ dialect: m.MSSQL })),
   },
   {
     name: "PL/SQL",
     extensions: ["plsql"],
     loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/sql").then((m) => m.plSQL),
-      ),
+      import("@codemirror/lang-sql").then((m) => m.sql({ dialect: m.PLSQL })),
   },
   {
     name: "Markdown",
@@ -230,6 +217,25 @@ export const LANGUAGES: LanguageDefinition[] = [
     name: "CSS",
     extensions: ["css"],
     loader: () => import("@codemirror/lang-css").then((m) => m.css()),
+    userSelectable: true,
+  },
+  {
+    name: "SCSS",
+    extensions: ["scss"],
+    loader: () => import("@codemirror/lang-sass").then((m) => m.sass()),
+    userSelectable: true,
+  },
+  {
+    name: "Sass",
+    extensions: ["sass"],
+    loader: () =>
+      import("@codemirror/lang-sass").then((m) => m.sass({ indented: true })),
+    userSelectable: true,
+  },
+  {
+    name: "Less",
+    extensions: ["less"],
+    loader: () => import("@codemirror/lang-less").then((m) => m.less()),
     userSelectable: true,
   },
   {
@@ -343,10 +349,7 @@ export const LANGUAGES: LanguageDefinition[] = [
   {
     name: "YAML",
     extensions: ["yaml", "yml"],
-    loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/yaml").then((m) => m.yaml),
-      ),
+    loader: () => import("@codemirror/lang-yaml").then((m) => m.yaml()),
     filenames: ["pubspec.yaml", "pubspec.lock", "analysis_options.yaml"],
     userSelectable: true,
   },
@@ -399,10 +402,7 @@ export const LANGUAGES: LanguageDefinition[] = [
       "props",
       "targets",
     ],
-    loader: () =>
-      defineLanguage(
-        import("@codemirror/legacy-modes/mode/xml").then((m) => m.xml),
-      ),
+    loader: () => import("@codemirror/lang-xml").then((m) => m.xml()),
     userSelectable: true,
   },
   {

@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { foldable, syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { resolveDisplayName, resolveLanguage } from "./languageResolver";
@@ -9,6 +9,11 @@ describe("resolveDisplayName", () => {
     expect(resolveDisplayName("main.go")).toBe("Go");
     expect(resolveDisplayName("README.md")).toBe("Markdown");
     expect(resolveDisplayName("query.sql")).toBe("SQL");
+    expect(resolveDisplayName("workflow_config.yaml")).toBe("YAML");
+    expect(resolveDisplayName("theme.scss")).toBe("SCSS");
+    expect(resolveDisplayName("theme.sass")).toBe("Sass");
+    expect(resolveDisplayName("theme.less")).toBe("Less");
+    expect(resolveDisplayName("layout.xml")).toBe("XML");
     expect(resolveDisplayName("Component.svelte")).toBe("Svelte");
     expect(resolveDisplayName("analysis.R")).toBe("R");
     expect(resolveDisplayName("simulation.jl")).toBe("Julia");
@@ -61,6 +66,37 @@ describe("resolveDisplayName", () => {
       expect(result?.id).toBe(id);
       expect(result?.ext).toBeTruthy();
     }
+  });
+
+  it("loads YAML, XML, SQL, SCSS and Less with Lezer modes that can fold", async () => {
+    const cases = [
+      ["workflow_config.yaml", "YAML", "yaml"],
+      ["layout.xml", "XML", "xml"],
+      ["query.sql", "SQL", "sql"],
+      ["theme.scss", "SCSS", "scss"],
+      ["theme.less", "Less", "less"],
+    ] as const;
+    for (const [path, name, id] of cases) {
+      const result = await resolveLanguage(`/project/${path}`);
+      expect(result?.name).toBe(name);
+      expect(result?.id).toBe(id);
+      expect(result?.ext).toBeTruthy();
+    }
+
+    const yaml = await resolveLanguage("/project/workflow_config.yaml");
+    if (!yaml) throw new Error("YAML language failed to load");
+    const state = EditorState.create({
+      doc: [
+        "data_asset_panel:",
+        "  version: 1",
+        "  databases:",
+        "    baseline: data/baseline/baseline.sqlite",
+      ].join("\n"),
+      extensions: [yaml.ext],
+    });
+    expect(syntaxTree(state).toString()).toMatch(/BlockMapping|Pair|Item/);
+    const line = state.doc.line(1);
+    expect(foldable(state, line.from, line.to)).toBeTruthy();
   });
 
   // `.svelte` used to resolve to HTML, which left blocks and directives as
