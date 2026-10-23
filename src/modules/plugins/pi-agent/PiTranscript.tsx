@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
@@ -223,6 +224,7 @@ const TranscriptItem = memo(function TranscriptItem({
       <details
         data-pi-text={item.id}
         data-pi-expansion={`item:${item.id}`}
+        data-pi-status={item.status}
         className="pi-tool"
         open={expanded}
         onToggle={(event) => setExpanded(event.currentTarget.open)}
@@ -230,7 +232,11 @@ const TranscriptItem = memo(function TranscriptItem({
         <summary className="pi-tool-summary pi-record-summary cursor-pointer text-xs text-muted-foreground">
           <HugeiconsIcon icon={File01Icon} size={13} className="shrink-0" />
           <span
-            className={`pi-tool-status ${item.status === "running" ? "pi-process-live" : ""}`}
+            className={cn(
+              "pi-tool-status",
+              item.status === "running" && "pi-process-live",
+              item.status === "error" && "pi-tool-status-error",
+            )}
           >
             {item.status === "running"
               ? "执行中"
@@ -617,7 +623,7 @@ function TimelineBlock({
             {elapsedText}
           </span>
         </summary>
-        <div className="pi-process-body pl-5">
+        <div className="pi-process-body pl-4">
           {block.steps.map((step) => (
             <ProcessStep
               key={step.id}
