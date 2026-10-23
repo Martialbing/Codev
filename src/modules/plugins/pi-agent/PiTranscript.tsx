@@ -258,7 +258,7 @@ const TranscriptItem = memo(function TranscriptItem({
             <div className="mb-1 text-[10px] text-muted-foreground">
               执行结果
             </div>
-            <pre className="whitespace-pre-wrap break-all font-mono text-xs">
+            <pre className="pi-tool-output whitespace-pre-wrap break-all font-mono text-xs">
               {item.output || "等待工具结果…"}
             </pre>
           </div>
@@ -281,7 +281,7 @@ const TranscriptItem = memo(function TranscriptItem({
     >
       <div
         className={
-          isUser ? "pi-user-message rounded-2xl bg-muted px-3 py-2" : undefined
+          isUser ? "pi-user-message rounded-2xl px-3 py-2" : undefined
         }
       >
         <div
@@ -966,7 +966,7 @@ export function PiTranscript({
           ref={viewport}
           tabIndex={0}
           data-testid="pi-transcript"
-          className="reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none] [scrollbar-gutter:stable]"
+          className="pi-conversation reader-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden outline-none [overflow-anchor:none] [scrollbar-gutter:stable]"
           onWheel={(event) => {
             if (event.deltaY < 0) {
               pauseFollow();

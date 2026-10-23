@@ -1,3 +1,10 @@
+/* 对比层：用前景色混出三档浅底，深浅主题与玻璃感都自然跟随。 */
+.pi-agent {
+  --pi-layer-1: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --pi-layer-2: color-mix(in srgb, var(--foreground) 9%, transparent);
+  --pi-rule: color-mix(in srgb, var(--foreground) 13%, transparent);
+}
+.pi-agent .pi-conversation { background: var(--pi-layer-1); }
 .pi-agent ::selection { background: rgb(112 149 184 / 48%); }
 .pi-agent ::highlight(codev-pi-search) { color: #201a09; background: #ffe681; }
 .pi-agent ::highlight(codev-pi-search-current) { color: #171004; background: #ffc94d; }
@@ -37,6 +44,28 @@
   background: transparent;
   padding: 0;
   gap: 0;
+}
+.pi-agent .pi-markdown [data-streamdown="code-block-body"] {
+  border: 1px solid var(--pi-rule);
+  background: var(--pi-layer-1);
+  padding: 10px 12px;
+  line-height: 1.6;
+}
+.pi-agent .pi-markdown [data-streamdown="inline-code"] {
+  background: var(--pi-layer-2);
+  font-size: 0.92em;
+}
+.pi-agent .pi-markdown pre [data-streamdown="inline-code"],
+.pi-agent .pi-markdown pre code {
+  background: transparent;
+}
+.pi-agent .pi-markdown blockquote {
+  border-left: 2px solid var(--pi-rule);
+  padding-left: 10px;
+  color: var(--muted-foreground);
+}
+.pi-agent .pi-markdown [data-streamdown="table-wrapper"] table {
+  border: 1px solid var(--pi-rule);
 }
 .pi-agent .pi-markdown [data-streamdown="code-block-header"],
 .pi-agent .pi-markdown [data-streamdown="mermaid-block"] > div:first-child:not(:has([data-streamdown="mermaid"])) {
@@ -81,7 +110,11 @@
 .pi-agent .pi-markdown :first-child { margin-top: 0; }
 .pi-agent .pi-markdown :last-child { margin-bottom: 0; }
 .pi-agent .pi-user-turn { display: flex; flex-direction: column; align-items: flex-end; }
-.pi-agent .pi-user-message { position: relative; }
+.pi-agent .pi-user-message {
+  position: relative;
+  border: 1px solid var(--pi-rule);
+  background: var(--pi-layer-2);
+}
 .pi-agent .pi-user-file-chip {
   display: inline-flex;
   max-width: 100%;
@@ -125,18 +158,40 @@
 .pi-agent .pi-process-summary { min-width: 0; max-width: 100%; min-height: 28px; overflow-wrap: anywhere; }
 .pi-agent .pi-process-title { min-width: 0; overflow-wrap: anywhere; }
 .pi-agent .pi-process-meta { min-width: 0; overflow-wrap: anywhere; }
+.pi-agent .pi-process-title { color: color-mix(in srgb, var(--foreground) 88%, transparent); }
 .pi-agent .pi-process-live { color: #8eacc9; }
 .pi-agent .pi-process[open] > summary > svg,
 .pi-agent .pi-file-operations[open] > summary > svg { transform: rotate(180deg); }
 .pi-agent .pi-process-body { min-width: 0; max-width: 100%; margin-top: 4px; overflow-wrap: anywhere; }
 .pi-agent .pi-process-step { padding: 2px 0; }
-.pi-agent .pi-process-step-body { padding: 4px 0 8px; color: var(--muted-foreground); font-size: 12px; }
+.pi-agent .pi-process-step-body {
+  margin-left: 1px;
+  border-left: 1px solid var(--pi-rule);
+  padding: 4px 0 8px 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
 .pi-agent .pi-tool { margin: 2px 0; }
 .pi-agent .pi-tool-summary { display: flex; min-width: 0; align-items: flex-start; gap: 6px; padding: 3px 0; user-select: none; }
 .pi-agent .pi-tool-status { flex: 0 0 auto; }
 .pi-agent .pi-tool-summary:hover { color: var(--foreground); }
-.pi-agent .pi-tool-body { padding: 4px 0 8px; }
-.pi-agent .pi-tool-command { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pi-agent .pi-tool-body {
+  margin-left: 1px;
+  border-left: 1px solid var(--pi-rule);
+  padding: 2px 0 8px 10px;
+}
+.pi-agent .pi-tool-command {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--foreground) 80%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pi-agent .pi-tool-output {
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
 .pi-agent .pi-record-summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 0; list-style: none; }
 .pi-agent .pi-record-summary::-webkit-details-marker { display: none; }
 .pi-agent .pi-record-summary:hover { color: var(--foreground); }
