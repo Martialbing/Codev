@@ -8,7 +8,7 @@ const USAGE = `用法：pnpm dev:roll [选项]
 
   --debug       用 debug profile 构建（默认 release，和正式包一致；debug 编译快但运行慢）
   --restart     替换后结束并重新打开正在运行的 Codev（会丢未保存的编辑）
-  --pull        先同步上游：main 快进，dev 把 origin/main 合进来
+  --pull        先同步上游：main 快进，dev 把上游 main 合进来
   --no-launch   只构建和替换，不打开窗口
   -h, --help    显示本帮助
 
@@ -131,30 +131,38 @@ function gitInfo() {
   return branch + " " + head + (dirty ? "（有未提交改动）" : "");
 }
 
-/** 上游只认 origin/main：main 只允许快进，其它分支把 origin/main 合进来。 */
+/** 上游远端优先取 upstream（origin 指向自己的 fork 时），单远端仓库回退 origin。 */
+function upstreamRemote() {
+  const remotes = read("git", ["remote"]).split(/\s+/).filter(Boolean);
+  return remotes.includes("upstream") ? "upstream" : "origin";
+}
+
+/** main 只允许快进，其它分支把上游 main 合进来。 */
 function syncUpstream() {
-  step("同步上游（git fetch origin）...");
-  if (runInherit("git", ["fetch", "origin"]) !== 0) {
-    fail("git fetch origin 失败，未改动 " + targetExe() + "。");
+  const remote = upstreamRemote();
+  const base = remote + "/main";
+  step("同步上游（git fetch " + remote + "）...");
+  if (runInherit("git", ["fetch", remote]) !== 0) {
+    fail("git fetch " + remote + " 失败，未改动 " + targetExe() + "。");
   }
   const branch = read("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim() || "HEAD";
-  const counting = read("git", ["rev-list", "--count", "HEAD..origin/main"]).trim();
-  if (!/^\d+$/.test(counting)) fail("读不到 origin/main 与 HEAD 的差距，未改动 " + targetExe() + "。");
+  const counting = read("git", ["rev-list", "--count", "HEAD.." + base]).trim();
+  if (!/^\d+$/.test(counting)) fail("读不到 " + base + " 与 HEAD 的差距，未改动 " + targetExe() + "。");
   const behind = Number.parseInt(counting, 10);
   if (behind === 0) {
-    step(branch + " 已经包含 origin/main 的全部提交。");
+    step(branch + " 已经包含 " + base + " 的全部提交。");
     return;
   }
   if (branch === "main") {
-    if (runInherit("git", ["merge", "--ff-only", "origin/main"]) !== 0) {
-      fail("main 只能快进到 origin/main；本地 main 不应该有提交，未改动 " + targetExe() + "。");
+    if (runInherit("git", ["merge", "--ff-only", base]) !== 0) {
+      fail("main 只能快进到 " + base + "；本地 main 不应该有提交，未改动 " + targetExe() + "。");
     }
     return;
   }
-  step("把 origin/main 的 " + behind + " 个提交合入 " + branch + "...");
-  if (runInherit("git", ["merge", "--no-edit", "origin/main"]) !== 0) {
+  step("把 " + base + " 的 " + behind + " 个提交合入 " + branch + "...");
+  if (runInherit("git", ["merge", "--no-edit", base]) !== 0) {
     read("git", ["merge", "--abort"]);
-    fail("合入 origin/main 出现冲突，已回滚这次合入；手动解决后再滚，未改动 " + targetExe() + "。");
+    fail("合入 " + base + " 出现冲突，已回滚这次合入；手动解决后再滚，未改动 " + targetExe() + "。");
   }
 }
 
