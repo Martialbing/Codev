@@ -1,4 +1,5 @@
 import { useAgentProjectRequest } from "@/modules/plugins/agentProjectRequest";
+import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -55,7 +56,11 @@ import {
   type ShortcutId,
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
-import { SIDEBAR_MIN_WIDTH, useSidebarPanel } from "@/modules/sidebar";
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  useSidebarPanel,
+} from "@/modules/sidebar";
 import {
   useSpacePersistence,
   useSpaces,
@@ -79,8 +84,6 @@ import {
   leafIds,
   TerminalPanel,
   type TerminalPaneHandle,
-  TERMINAL_MIN_WIDTH,
-  useTerminalPanelLayout,
   useTerminalFileDrop,
   writeToSession,
 } from "@/modules/terminal";
@@ -101,20 +104,17 @@ import {
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { showMainWindow } from "./lib/hideToTray";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
 import { onAction } from "@tauri-apps/plugin-notification";
 import { useDockTabReorder } from "./hooks/useDockTabReorder";
+import { useFilePanelLayout } from "./hooks/useFilePanelLayout";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 import { normalizeDockOrder, type DockTab } from "./lib/dockTabs";
 import { uiState } from "@/lib/uiState";
-import {
-  completeWelcome,
-  firstLayoutSizes,
-  needsFirstLayout,
-  shouldShowWelcome,
-} from "./lib/firstWorkspaceLayout";
+import { completeWelcome, shouldShowWelcome } from "./lib/firstWorkspaceLayout";
 import { codevInstallStamp } from "@/modules/plugins/pi-agent/native";
 
 /** 判断文件标签是否对应同一个规范化路径。 */
@@ -130,16 +130,23 @@ export default function App() {
   );
   useTaskbarUnreadBadge(taskbarUnreadEnabled);
   const [installStamp, setInstallStamp] = useState<string | null>(null);
-  const [sidebarMode, setSidebarMode] = useState<"files" | "git">("files");
+  const [sidebarMode, setSidebarMode] = useState<
+    "agent" | "files" | "workspace" | "git"
+  >("agent");
+  const [rightDockView, setRightDockView] = useState<"terminal" | "tools">(
+    "tools",
+  );
+  const [toolView, setToolView] = useState<
+    "json" | "diff" | "pi" | "codex" | "browser"
+  >("pi");
+  const [piSidebarTarget, setPiSidebarTarget] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [filePanelClosed, setFilePanelClosed] = useState(false);
+  const lastSpaceIdRef = useRef<string | null>(null);
   const gitEnabled = usePreferencesStore((state) => state.gitEnabled);
   const notepadEnabled = usePreferencesStore((state) => state.notepadEnabled);
   const [showWelcome, setShowWelcome] = useState(() => shouldShowWelcome(null));
-  const [needsInitialLayout] = useState(() => needsFirstLayout());
-  const [initialFirstSizes] = useState(() =>
-    firstLayoutSizes(typeof window === "undefined" ? 1200 : window.innerWidth),
-  );
-  const firstLayoutPending = useRef(needsInitialLayout);
-  const seededFirstLayout = useRef(false);
   const {
     tabs,
     activeId,
@@ -173,18 +180,14 @@ export default function App() {
     closeActivePane,
     closePaneByLeaf,
     resetWorkspace,
-  } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined);
+  } = useTabs(getLaunchDir() ? { cwd: getLaunchDir() } : undefined, {
+    deferActiveTerminal: rightDockView !== "terminal",
+  });
 
   // Mirror `tabs` into a ref so callbacks scheduled with `setTimeout`
   // (e.g. cdInNewTab) read the latest pane state instead of a stale closure.
   const tabsRef = useRef(tabs);
   const activeIdRef = useRef(activeId);
-
-  const activeTerminalTab = useMemo(() => {
-    const t = tabs.find((x) => x.id === activeId);
-    return t && t.kind === "terminal" ? t : null;
-  }, [tabs, activeId]);
-  const activeLeafId = activeTerminalTab?.activeLeafId ?? null;
 
   const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
   const [activeSearchAddon, setActiveSearchAddon] =
@@ -204,6 +207,7 @@ export default function App() {
   const [secondaryEditorActiveId, setSecondaryEditorActiveId] = useState<
     number | null
   >(null);
+  const [terminalVisited, setTerminalVisited] = useState(false);
   const { zoomIn, zoomOut, zoomReset } = useZoom();
   useApplyEditorFontSize();
   const terminalPathDropTarget = useTerminalFileDrop();
@@ -237,14 +241,7 @@ export default function App() {
   const markdownDefaultView = usePreferencesStore(
     (state) => state.markdownDefaultView,
   );
-  const pluginEnabled = usePluginStore(
-    (state) =>
-      state.enabled["json-formatter"] ||
-      state.enabled["text-diff"] ||
-      state.enabled["pi-agent"] ||
-      state.enabled["codex-agent"] ||
-      state.enabled["browser"],
-  );
+  const pluginStateHydrated = usePluginStore((state) => state.hydrated);
   const jsonFormatterEnabled = usePluginStore(
     (state) => state.enabled["json-formatter"],
   );
@@ -253,12 +250,6 @@ export default function App() {
   const codexEnabled = usePluginStore((state) => state.enabled["codex-agent"]);
   const browserEnabled = usePluginStore((state) => state.enabled["browser"]);
   const initPlugins = usePluginStore((state) => state.init);
-  const [rightDockView, setRightDockView] = useState<"terminal" | "tools">(
-    "terminal",
-  );
-  const [toolView, setToolView] = useState<
-    "json" | "diff" | "pi" | "codex" | "browser"
-  >("pi");
   const [dockOrder, setDockOrder] = useState<DockTab[]>(() => {
     try {
       return normalizeDockOrder(
@@ -293,7 +284,13 @@ export default function App() {
     () => dockOrder.filter((tab) => availableDockTabs.includes(tab)),
     [availableDockTabs, dockOrder],
   );
-  const dockReorder = useDockTabReorder(dockTabs, setDockOrder);
+  // The main surface exposes only the two primary work modes; auxiliary tools
+  // keep their existing entry points and state.
+  const primaryDockTabs = useMemo(
+    () => dockTabs.filter((tab) => tab === "terminal" || tab === "pi"),
+    [dockTabs],
+  );
+  const dockReorder = useDockTabReorder(primaryDockTabs, setDockOrder);
 
   /** 处理右侧 dock 标签选择，插件标签共享同一内容面板。 */
   const selectDockTab = useCallback((tab: DockTab) => {
@@ -306,16 +303,18 @@ export default function App() {
 
   const agentProjectRequest = useAgentProjectRequest((state) => state.request);
   useEffect(() => {
-    if (agentProjectRequest) selectDockTab(agentProjectRequest.target);
+    if (!agentProjectRequest) return;
+    selectDockTab(agentProjectRequest.target);
+    if (agentProjectRequest.target === "pi") setSidebarMode("agent");
   }, [agentProjectRequest, selectDockTab]);
+
+  useEffect(() => {
+    if (rightDockView === "terminal") setTerminalVisited(true);
+  }, [rightDockView]);
 
   useEffect(() => {
     void initPlugins();
   }, [initPlugins]);
-
-  useEffect(() => {
-    if (!pluginEnabled) setRightDockView("terminal");
-  }, [pluginEnabled]);
 
   useEffect(() => {
     if (toolView === "json" && !jsonFormatterEnabled && textDiffEnabled) {
@@ -324,14 +323,19 @@ export default function App() {
     if (toolView === "diff" && !textDiffEnabled && jsonFormatterEnabled) {
       setToolView("json");
     }
+    if (
+      rightDockView === "tools" &&
+      toolView === "pi" &&
+      !piAgentEnabled &&
+      pluginStateHydrated
+    ) {
+      setRightDockView("terminal");
+    }
     if (toolView === "codex" && !codexEnabled) {
       setRightDockView("terminal");
     }
     if (toolView === "browser" && !browserEnabled) {
       setRightDockView("terminal");
-    }
-    if (toolView === "pi" && !piAgentEnabled) {
-      setToolView(jsonFormatterEnabled ? "json" : "diff");
     }
   }, [
     jsonFormatterEnabled,
@@ -340,6 +344,8 @@ export default function App() {
     toolView,
     codexEnabled,
     browserEnabled,
+    pluginStateHydrated,
+    rightDockView,
   ]);
 
   // Drives session disposal off the pane tree, not React lifecycles —
@@ -397,6 +403,13 @@ export default function App() {
   const prevSpaceRef = useRef(activeSpaceId);
   useEffect(() => {
     if (!spacesHydrated || !activeSpaceId) return;
+    if (lastSpaceIdRef.current !== activeSpaceId) {
+      lastSpaceIdRef.current = activeSpaceId;
+      setRightDockView("tools");
+      setToolView("pi");
+      setSidebarMode("agent");
+      setFilePanelClosed(false);
+    }
     setActiveSpaceForNewTabs(activeSpaceId);
     const prev = prevSpaceRef.current;
     prevSpaceRef.current = activeSpaceId;
@@ -420,7 +433,11 @@ export default function App() {
     adoptWorkspaceEnv,
   ]);
 
-  const workspaceTabs = tabs;
+  const workspaceTabs = useMemo(
+    () =>
+      tabs.filter((tab) => tab.spaceId === (activeSpaceId ?? DEFAULT_SPACE_ID)),
+    [tabs, activeSpaceId],
+  );
   const panelGroupElementRef = useRef<HTMLDivElement | null>(null);
   const hasMeasurablePanelLayout = useCallback(() => {
     const element = panelGroupElementRef.current;
@@ -441,6 +458,16 @@ export default function App() {
     persistSidebarWidth,
     toggleExplorerFocus,
   } = useSidebarPanel(explorerRef);
+  const showFiles = useCallback(() => {
+    setSidebarMode("files");
+    const panel = sidebarRef.current;
+    if (panel && panel.getSize().asPercentage <= 0)
+      panel.resize(`${sidebarWidthRef.current}px`);
+  }, [sidebarRef, sidebarWidthRef]);
+  const focusFiles = useCallback(() => {
+    showFiles();
+    requestAnimationFrame(() => toggleExplorerFocus());
+  }, [showFiles, toggleExplorerFocus]);
 
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -456,8 +483,7 @@ export default function App() {
   );
 
   const activeTab = tabs.find((t) => t.id === activeId);
-  // Terminal tabs live in the right-side dock panel; file tabs are assigned to
-  // one of the two fixed editor groups in the central workspace.
+  // 文件始终显示在右侧阅览器；中央主区域只显示终端或选中的工具。
   const fileTabs = useMemo(
     () => workspaceTabs.filter((t) => t.kind !== "terminal"),
     [workspaceTabs],
@@ -478,6 +504,13 @@ export default function App() {
       : (lastTerminalTabIdRef.current ??
         terminalTabs[terminalTabs.length - 1]?.id ??
         -1);
+  const activeTerminalTab = terminalTabs.find(
+    (tab) => tab.id === terminalActiveId,
+  );
+  const activeLeafId =
+    activeTerminalTab?.kind === "terminal"
+      ? activeTerminalTab.activeLeafId
+      : null;
 
   const secondaryEditorIdSet = useMemo(
     () => new Set(secondaryEditorIds),
@@ -512,6 +545,7 @@ export default function App() {
 
   const selectPrimaryEditor = useCallback(
     (id: number) => {
+      setFilePanelClosed(false);
       setPrimaryEditorActiveId(id);
       setActiveId(id);
     },
@@ -520,6 +554,7 @@ export default function App() {
 
   const selectSecondaryEditor = useCallback(
     (id: number) => {
+      setFilePanelClosed(false);
       setSecondaryEditorActiveId(id);
       setActiveId(id);
     },
@@ -539,11 +574,13 @@ export default function App() {
       if (group === "secondary") {
         setSecondaryEditorIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
         setSecondaryEditorActiveId(id);
+        setFilePanelClosed(false);
         setActiveId(id);
         return;
       }
       setSecondaryEditorIds((ids) => ids.filter((item) => item !== id));
       setPrimaryEditorActiveId(id);
+      setFilePanelClosed(false);
       setActiveId(id);
     },
     [setActiveId],
@@ -583,50 +620,32 @@ export default function App() {
     [reorderTabByGroup, terminalTabs],
   );
 
+  const mainViewMounted = booted && pluginStateHydrated;
+  const showMainTerminal = rightDockView === "terminal";
+  const filePanelOpen = fileTabs.length > 0 && !filePanelClosed;
+  const filePanelAvailableWidth =
+    typeof window === "undefined"
+      ? 1200
+      : Math.max(0, window.innerWidth - SIDEBAR_DEFAULT_WIDTH);
   const {
-    terminalPanelRef,
-    terminalWidthRef,
-    initialTerminalCollapsed,
-    terminalPanelCollapsed,
-    persistTerminalCollapsed,
-    persistTerminalWidth,
-    expandTerminalPanel,
-  } = useTerminalPanelLayout();
-  useEffect(() => {
-    if (agentProjectRequest) expandTerminalPanel();
-  }, [agentProjectRequest, expandTerminalPanel]);
+    panelRef: filePanelRef,
+    groupElementRef: filePanelGroupElementRef,
+    defaultPanelWidthRef: filePanelDefaultSize,
+    persistPanelWidth: persistFilePanelWidth,
+    openPanel: openFilePanel,
+  } = useFilePanelLayout(filePanelAvailableWidth);
+  useLayoutEffect(() => {
+    if (!filePanelOpen) return;
+    openFilePanel();
+  }, [filePanelOpen, openFilePanel]);
   useEffect(() => {
     const openWorkbench = () => {
       selectDockTab("browser");
-      expandTerminalPanel();
     };
     window.addEventListener("codev:open-workbench", openWorkbench);
     return () =>
       window.removeEventListener("codev:open-workbench", openWorkbench);
-  }, [selectDockTab, expandTerminalPanel]);
-
-  if (needsInitialLayout && !seededFirstLayout.current) {
-    seededFirstLayout.current = true;
-    sidebarWidthRef.current = initialFirstSizes.sidebar;
-    terminalWidthRef.current = initialFirstSizes.terminal;
-  }
-  const previousTerminalCountRef = useRef(0);
-  useEffect(() => {
-    const panel = terminalPanelRef.current;
-    if (!panel) return;
-    if (terminalTabs.length === 0) {
-      if (!firstLayoutPending.current) panel.collapse();
-      previousTerminalCountRef.current = 0;
-      return;
-    }
-    if (
-      previousTerminalCountRef.current === 0 ||
-      terminalTabs.length > previousTerminalCountRef.current
-    ) {
-      expandTerminalPanel();
-    }
-    previousTerminalCountRef.current = terminalTabs.length;
-  }, [expandTerminalPanel, terminalTabs.length]);
+  }, [selectDockTab]);
 
   useEffect(() => {
     void codevInstallStamp()
@@ -638,7 +657,8 @@ export default function App() {
         setShowWelcome(shouldShowWelcome(null));
       });
   }, []);
-  const isTerminalTab = activeTab?.kind === "terminal";
+  const isTerminalTab =
+    activeTab?.kind === "terminal" || rightDockView === "terminal";
   const isSearchableDocumentTab =
     activeTab?.kind === "editor" ||
     activeTab?.kind === "markdown" ||
@@ -794,18 +814,40 @@ export default function App() {
   const { state: switcherState, step: stepSwitcher } = useTabSwitcher({
     getOrder: getSwitcherOrder,
     onCommit: (id) => {
-      if (tabsRef.current.some((t) => t.id === id)) setActiveId(id);
+      const tab = tabsRef.current.find((item) => item.id === id);
+      if (!tab) return;
+      if (tab.kind === "terminal") {
+        setRightDockView("terminal");
+        setActiveId(id);
+      } else focusEditor(id);
     },
   });
 
   const openNewTab = useCallback(() => {
+    setTerminalVisited(true);
+    selectDockTab("terminal");
     return newTab(inheritedCwdForNewTab());
-  }, [newTab, inheritedCwdForNewTab]);
+  }, [newTab, inheritedCwdForNewTab, selectDockTab]);
+
+  const selectTabByIndex = useCallback(
+    (index: number) => {
+      const spaceId = activeSpaceId ?? DEFAULT_SPACE_ID;
+      const tab = tabsRef.current.filter((item) => item.spaceId === spaceId)[
+        index
+      ];
+      if (!tab) return;
+      if (tab.kind === "terminal") {
+        setRightDockView("terminal");
+        selectByIndex(index, spaceId);
+      } else focusEditor(tab.id);
+    },
+    [activeSpaceId, focusEditor, selectByIndex],
+  );
 
   const cdInNewTab = useCallback(
     (path: string) => {
+      setTerminalVisited(true);
       selectDockTab("terminal");
-      expandTerminalPanel();
       const tabId = newTab(path);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
@@ -816,7 +858,7 @@ export default function App() {
         t.focus();
       }, 80);
     },
-    [expandTerminalPanel, newTab, selectDockTab],
+    [newTab, selectDockTab],
   );
 
   const handleOpenFile = useCallback(
@@ -863,6 +905,7 @@ export default function App() {
               }));
       setSecondaryEditorIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
       setSecondaryEditorActiveId(id);
+      setFilePanelClosed(false);
       setActiveId(id);
       return id;
     },
@@ -887,6 +930,7 @@ export default function App() {
         void addRoot(path);
         return;
       }
+      setFilePanelClosed(false);
       const id = isMarkdownPath(path)
         ? newMarkdownTab(path, {
             activate: group === "primary",
@@ -1016,23 +1060,36 @@ export default function App() {
       ? activeTab.path
       : null;
 
+  const terminalOwnsFocus = useCallback(() => {
+    const target = document.activeElement;
+    return target instanceof Element && !!target.closest("[data-terminal-tab]");
+  }, []);
+
   const splitActivePaneInActiveTab = useCallback(
     (dir: "row" | "col") => {
-      const t = tabsRef.current.find((x) => x.id === activeId);
-      if (!t || t.kind !== "terminal") return;
-      splitActivePane(activeId, dir);
+      const id = terminalOwnsFocus() ? terminalActiveId : activeId;
+      const tab = tabsRef.current.find((item) => item.id === id);
+      if (!tab || tab.kind !== "terminal") return;
+      splitActivePane(id, dir);
     },
-    [activeId, splitActivePane],
+    [activeId, splitActivePane, terminalActiveId, terminalOwnsFocus],
   );
 
   const handleCloseTabOrPane = useCallback(() => {
-    const t = tabsRef.current.find((x) => x.id === activeId);
-    if (t?.kind === "terminal" && leafIds(t.paneTree).length > 1) {
-      closeActivePane(activeId);
+    const id = terminalOwnsFocus() ? terminalActiveId : activeId;
+    const tab = tabsRef.current.find((item) => item.id === id);
+    if (tab?.kind === "terminal" && leafIds(tab.paneTree).length > 1) {
+      closeActivePane(id);
       return;
     }
-    void handleClose(activeId);
-  }, [activeId, closeActivePane, handleClose]);
+    void handleClose(id);
+  }, [
+    activeId,
+    closeActivePane,
+    handleClose,
+    terminalActiveId,
+    terminalOwnsFocus,
+  ]);
 
   const [zenMode, setZenMode] = useState(false);
 
@@ -1045,18 +1102,26 @@ export default function App() {
       "tab.close": handleCloseTabOrPane,
       "tab.next": () => stepSwitcher(1),
       "tab.prev": () => stepSwitcher(-1),
-      "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
+      "tab.selectByIndex": (e) => selectTabByIndex(parseInt(e.key, 10) - 1),
       "pane.splitRight": () => splitActivePaneInActiveTab("row"),
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
-      "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
-      "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+      "pane.focusNext": () =>
+        focusNextPaneInTab(
+          terminalOwnsFocus() ? terminalActiveId : activeId,
+          1,
+        ),
+      "pane.focusPrev": () =>
+        focusNextPaneInTab(
+          terminalOwnsFocus() ? terminalActiveId : activeId,
+          -1,
+        ),
       "terminal.clear": () => {
         clearFocusedTerminal();
       },
       "search.focus": () => searchInlineRef.current?.focus(),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
-      "explorer.focus": toggleExplorerFocus,
+      "explorer.focus": focusFiles,
       "view.zoomIn": zoomIn,
       "view.zoomOut": zoomOut,
       "view.zoomReset": zoomReset,
@@ -1068,11 +1133,13 @@ export default function App() {
       stepSwitcher,
       handleCloseTabOrPane,
       openNewTab,
-      selectByIndex,
+      selectTabByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
+      terminalActiveId,
+      terminalOwnsFocus,
       toggleSidebar,
-      toggleExplorerFocus,
+      focusFiles,
       zoomIn,
       zoomOut,
       zoomReset,
@@ -1196,7 +1263,11 @@ export default function App() {
     );
 
   const searchTarget = useMemo<SearchTarget>(() => {
-    if (isTerminalTab && activeLeafId !== null && activeSearchAddon)
+    if (
+      activeTab?.kind === "terminal" &&
+      activeLeafId !== null &&
+      activeSearchAddon
+    )
       return {
         kind: "terminal",
         addon: activeSearchAddon,
@@ -1209,8 +1280,15 @@ export default function App() {
         focus: () => activeEditorHandle.focus(),
         canReplace: activeDocumentCanReplace,
       };
+    if (isTerminalTab && activeLeafId !== null && activeSearchAddon)
+      return {
+        kind: "terminal",
+        addon: activeSearchAddon,
+        focus: () => terminalRefs.current.get(activeLeafId)?.focus(),
+      };
     return null;
   }, [
+    activeTab?.kind,
     isTerminalTab,
     isSearchableDocumentTab,
     activeLeafId,
@@ -1303,18 +1381,9 @@ export default function App() {
               onClick={() => {
                 const sizes = completeWelcome(installStamp, window.innerWidth);
                 persistSidebarCollapsed(false);
-                persistTerminalCollapsed(false);
                 sidebarWidthRef.current = sizes.sidebar;
-                terminalWidthRef.current = sizes.terminal;
-                firstLayoutPending.current = true;
-                setRightDockView("terminal");
-                if (terminalTabs.length === 0) openNewTab();
                 requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    sidebarRef.current?.resize(`${sizes.sidebar}px`);
-                    terminalPanelRef.current?.resize(`${sizes.terminal}px`);
-                    firstLayoutPending.current = false;
-                  });
+                  sidebarRef.current?.resize(`${sizes.sidebar}px`);
                 });
                 setShowWelcome(false);
               }}
@@ -1332,11 +1401,12 @@ export default function App() {
             <Header
               onToggleSidebar={toggleSidebar}
               onOpenSettings={() => void openSettingsWindow()}
-              terminalPanelCollapsed={terminalPanelCollapsed}
+              terminalPanelCollapsed={rightDockView !== "terminal"}
               onToggleTerminalPanel={() => {
-                if (terminalTabs.length === 0) openNewTab();
-                else if (terminalPanelCollapsed) expandTerminalPanel();
-                else terminalPanelRef.current?.collapse();
+                if (rightDockView === "terminal" && piAgentEnabled) {
+                  selectDockTab("pi");
+                } else if (terminalTabs.length === 0) openNewTab();
+                else selectDockTab("terminal");
               }}
               searchTarget={searchTarget}
               searchRef={searchInlineRef}
@@ -1358,9 +1428,6 @@ export default function App() {
                 if (!hasMeasurablePanelLayout()) return;
                 const width = sidebarRef.current?.getSize().inPixels ?? 0;
                 persistSidebarWidth(width, isUserInteraction);
-                const terminalWidth =
-                  terminalPanelRef.current?.getSize().inPixels ?? 0;
-                persistTerminalWidth(terminalWidth, isUserInteraction);
               }}
             >
               <ResizablePanel
@@ -1368,11 +1435,9 @@ export default function App() {
                 panelRef={sidebarRef}
                 groupResizeBehavior="preserve-pixel-size"
                 defaultSize={
-                  needsInitialLayout
-                    ? `${initialFirstSizes.sidebar}px`
-                    : initialSidebarCollapsed
-                      ? "0px"
-                      : `${sidebarWidthRef.current}px`
+                  initialSidebarCollapsed
+                    ? "0px"
+                    : `${sidebarWidthRef.current}px`
                 }
                 minSize={`${SIDEBAR_MIN_WIDTH}px`}
                 collapsible
@@ -1383,24 +1448,77 @@ export default function App() {
                 }}
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
-                  <div className="min-h-0 flex-1 codev-panel-in">
-                    {sidebarMode === "git" && gitEnabled ? (
-                      <GitPanel
-                        key={activeRoot}
-                        root={activeRoot}
-                        onBack={() => setSidebarMode("files")}
-                        onOpenDiff={(repo, change, diff) =>
-                          openGitDiffTab({
-                            repoRoot: repo.root,
-                            path: change.path,
-                            diff,
-                          })
-                        }
-                        onOpenHistory={(repo, commits) =>
-                          openGitHistoryTab({ repoRoot: repo.root, commits })
-                        }
-                      />
-                    ) : (
+                  <div
+                    className="flex h-9 shrink-0 items-center gap-1 border-b border-border/60 px-2"
+                    aria-label="工作区导航"
+                  >
+                    <Button
+                      type="button"
+                      variant={sidebarMode === "agent" ? "secondary" : "ghost"}
+                      size="xs"
+                      className="rounded-md"
+                      onClick={() => setSidebarMode("agent")}
+                    >
+                      Agent
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        sidebarMode === "files" || sidebarMode === "git"
+                          ? "secondary"
+                          : "ghost"
+                      }
+                      size="xs"
+                      className="rounded-md"
+                      onClick={() => setSidebarMode("files")}
+                    >
+                      文件
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        sidebarMode === "workspace" ? "secondary" : "ghost"
+                      }
+                      size="xs"
+                      className="rounded-md"
+                      onClick={() => setSidebarMode("workspace")}
+                    >
+                      工作区
+                    </Button>
+                  </div>
+                  <div className="relative min-h-0 flex-1">
+                    <div
+                      ref={setPiSidebarTarget}
+                      data-testid="workspace-pi-sidebar"
+                      className={
+                        sidebarMode === "agent" && piAgentEnabled
+                          ? "absolute inset-0"
+                          : "hidden absolute inset-0"
+                      }
+                    />
+                    {sidebarMode === "agent" &&
+                      !piAgentEnabled &&
+                      pluginStateHydrated && (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-xs text-muted-foreground">
+                          <p>
+                            Pi Agent 尚未启用。启用后可在这里管理项目和会话。
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void openSettingsWindow()}
+                          >
+                            打开插件设置
+                          </Button>
+                        </div>
+                      )}
+                    <div
+                      className={
+                        sidebarMode === "files"
+                          ? "absolute inset-0"
+                          : "hidden absolute inset-0"
+                      }
+                    >
                       <FileExplorer
                         ref={explorerRef}
                         roots={workspaceRoots}
@@ -1426,179 +1544,227 @@ export default function App() {
                         onRevealInTerminal={cdInNewTab}
                         pathDropTarget={explorerPathDropTarget}
                       />
+                    </div>
+                    {sidebarMode === "git" && gitEnabled && (
+                      <GitPanel
+                        key={activeRoot}
+                        root={activeRoot}
+                        onBack={() => setSidebarMode("files")}
+                        onOpenDiff={(repo, change, diff) => {
+                          setFilePanelClosed(false);
+                          openGitDiffTab({
+                            repoRoot: repo.root,
+                            path: change.path,
+                            diff,
+                          });
+                        }}
+                        onOpenHistory={(repo, commits) => {
+                          setFilePanelClosed(false);
+                          openGitHistoryTab({ repoRoot: repo.root, commits });
+                        }}
+                      />
+                    )}
+                    {sidebarMode === "workspace" && (
+                      <WorkspaceSidebar
+                        activeRoot={activeRoot}
+                        workspaceRoots={workspaceRoots}
+                        onSetActiveRoot={(path) => void setActiveRoot(path)}
+                        onShowFiles={showFiles}
+                      />
                     )}
                   </div>
                 </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
-              <ResizablePanel id="main-content" minSize="60px">
-                <div className="relative h-full min-h-0">
-                  <WorkspaceSurface
-                    primaryTabs={primaryEditorTabs}
-                    primaryActiveId={primaryActiveId}
-                    secondaryTabs={secondaryEditorTabs}
-                    secondaryActiveId={secondaryActiveId}
-                    workspaceRoots={workspaceRoots}
-                    onSelectPrimary={selectPrimaryEditor}
-                    onSelectSecondary={selectSecondaryEditor}
-                    onClose={handleClose}
-                    onCloseTabsToRight={handleCloseTabsToRightInGroup}
-                    onPin={pinTab}
-                    onRename={handleRenameTab}
-                    onReorderPrimary={reorderPrimaryEditors}
-                    onReorderSecondary={reorderSecondaryEditors}
-                    onOverrideLanguage={setOverrideLanguage}
-                    onMoveToGroup={moveEditorToGroup}
-                    registerEditorHandle={registerEditorHandle}
-                    onEditorDirtyChange={handleEditorDirty}
-                    onSetMarkdownView={setMarkdownView}
-                    onSetHtmlView={setHtmlView}
-                    onFocusSearch={() => searchInlineRef.current?.focus()}
-                    onFocusEditor={focusEditor}
-                  />
-                </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel
-                id="terminal-panel"
-                panelRef={terminalPanelRef}
-                groupResizeBehavior="preserve-pixel-size"
-                defaultSize={
-                  needsInitialLayout
-                    ? `${initialFirstSizes.terminal}px`
-                    : initialTerminalCollapsed || terminalTabs.length === 0
-                      ? "0px"
-                      : `${terminalWidthRef.current}px`
-                }
-                minSize={`${TERMINAL_MIN_WIDTH}px`}
-                collapsible
-                collapsedSize={0}
-                onResize={(size) => {
-                  if (!hasMeasurablePanelLayout()) return;
-                  persistTerminalCollapsed(size.inPixels <= 1);
-                }}
-              >
-                <div className="flex h-full min-h-0 flex-col bg-card">
-                  {pluginEnabled && (
-                    <header
-                      ref={dockReorder.headerRef}
-                      className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2"
-                    >
-                      {dockTabs.map((tab, index) => {
-                        const active =
-                          tab === "terminal"
-                            ? rightDockView === "terminal"
-                            : rightDockView === "tools" && toolView === tab;
-                        const label =
-                          tab === "terminal"
-                            ? "终端"
-                            : tab === "json"
-                              ? "JSON格式化"
-                              : tab === "diff"
-                                ? "文本对照"
-                                : tab === "codex"
-                                  ? "Codex"
-                                  : tab === "browser"
-                                    ? "工作台"
-                                    : "Pi";
-                        return (
-                          <Fragment key={tab}>
-                            {dockReorder.dropIndex === index && (
-                              <span
-                                aria-hidden="true"
-                                className="h-5 w-0.5 shrink-0 rounded-full bg-accent"
-                              />
-                            )}
-                            <button
-                              type="button"
-                              className={`h-6 cursor-grab rounded-sm px-2 text-[11px] active:cursor-grabbing ${
-                                active
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-muted"
-                              } ${dockReorder.draggingTab === tab ? "opacity-50" : ""}`}
-                              onClick={() => selectDockTab(tab)}
-                              {...dockReorder.tabProps(tab)}
-                            >
-                              {label}
-                            </button>
-                          </Fragment>
-                        );
-                      })}
-                      {dockReorder.dropIndex === dockTabs.length && (
-                        <span
-                          aria-hidden="true"
-                          className="h-5 w-0.5 shrink-0 rounded-full bg-accent"
-                        />
-                      )}
-                      <div className="flex-1" />
-                    </header>
-                  )}
-                  <div className="relative min-h-0 flex-1">
-                    <div
-                      className={
-                        rightDockView === "terminal"
-                          ? "absolute inset-0"
-                          : "hidden absolute inset-0"
-                      }
-                    >
-                      <TerminalPanel
-                        tabs={terminalTabs}
-                        showHeader={!pluginEnabled}
-                        visible={
-                          rightDockView === "terminal" &&
-                          !terminalPanelCollapsed
-                        }
-                        activeId={terminalActiveId}
-                        onSelect={setActiveId}
-                        onClose={handleClose}
-                        onNew={openNewTab}
-                        onDuplicate={newTab}
-                        onShowTerminals={showTerminals}
-                        onRename={handleRenameTab}
-                        onReorder={reorderTerminals}
-                        registerHandle={registerTerminalHandle}
-                        onSearchReady={handleSearchReady}
-                        onCwd={handleTerminalCwd}
-                        onExit={handleLeafExit}
-                        onFocusLeaf={handleFocusLeaf}
-                      />
-                    </div>
-                    {pluginEnabled && (
-                      <div
-                        className={
-                          rightDockView === "tools"
-                            ? "absolute inset-0"
-                            : "hidden absolute inset-0"
-                        }
+              <ResizablePanel id="main-content" minSize="220px">
+                <ResizablePanelGroup
+                  orientation="horizontal"
+                  className="h-full min-h-0 min-w-0"
+                  elementRef={filePanelGroupElementRef}
+                  onLayoutChanged={(_, { isUserInteraction }) => {
+                    if (filePanelOpen) {
+                      persistFilePanelWidth(
+                        filePanelRef.current?.getSize().inPixels ?? 0,
+                        isUserInteraction,
+                      );
+                    }
+                  }}
+                >
+                  <ResizablePanel id="main-activity" minSize="180px">
+                    <div className="flex h-full min-h-0 flex-col bg-card">
+                      <header
+                        ref={dockReorder.headerRef}
+                        className="flex h-8 shrink-0 items-center gap-1 border-b border-border/60 px-2"
                       >
-                        <ToolPanel
-                          tool={toolView}
-                          active={rightDockView === "tools"}
-                          onOpenFile={(path) => handleOpenFile(path, false)}
-                          onOpenDiff={(path, diff) => {
-                            const normalized = path.replace(/\\/g, "/");
-                            const matchedRoot = workspaceRoots.find((root) =>
-                              normalized
-                                .toLowerCase()
-                                .startsWith(
-                                  root.replace(/\\/g, "/").toLowerCase(),
-                                ),
-                            );
-                            const parent =
-                              path.replace(/[\\/][^\\/]+$/, "") || path;
-                            openGitDiffTab({
-                              repoRoot: matchedRoot ?? parent,
-                              path,
-                              diff,
-                            });
-                          }}
+                        {primaryDockTabs.map((tab, index) => {
+                          const active =
+                            tab === "terminal"
+                              ? showMainTerminal
+                              : !showMainTerminal && toolView === tab;
+                          const label = tab === "terminal" ? "终端" : "Pi";
+                          return (
+                            <Fragment key={tab}>
+                              {dockReorder.dropIndex === index && (
+                                <span
+                                  aria-hidden="true"
+                                  className="h-5 w-0.5 shrink-0 rounded-full bg-accent"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                className={`h-6 cursor-grab rounded-sm px-2 text-[11px] active:cursor-grabbing ${
+                                  active
+                                    ? "bg-accent text-foreground"
+                                    : "text-muted-foreground hover:bg-muted"
+                                } ${dockReorder.draggingTab === tab ? "opacity-50" : ""}`}
+                                onClick={() => selectDockTab(tab)}
+                                {...dockReorder.tabProps(tab)}
+                              >
+                                {label}
+                              </button>
+                            </Fragment>
+                          );
+                        })}
+                        {dockReorder.dropIndex === primaryDockTabs.length && (
+                          <span
+                            aria-hidden="true"
+                            className="h-5 w-0.5 shrink-0 rounded-full bg-accent"
+                          />
+                        )}
+                        <div className="flex-1" />
+                      </header>
+                      <div className="relative min-h-0 flex-1">
+                        <div
+                          className={
+                            showMainTerminal
+                              ? "absolute inset-0"
+                              : "hidden absolute inset-0"
+                          }
+                        >
+                          {(terminalVisited || mainViewMounted) && (
+                            <TerminalPanel
+                              tabs={terminalTabs}
+                              showHeader={false}
+                              visible={showMainTerminal}
+                              activeId={terminalActiveId}
+                              onSelect={(id) => {
+                                setTerminalVisited(true);
+                                setActiveId(id);
+                              }}
+                              onClose={handleClose}
+                              onNew={openNewTab}
+                              onDuplicate={newTab}
+                              onShowTerminals={showTerminals}
+                              onRename={handleRenameTab}
+                              onReorder={reorderTerminals}
+                              registerHandle={registerTerminalHandle}
+                              onSearchReady={handleSearchReady}
+                              onCwd={handleTerminalCwd}
+                              onExit={handleLeafExit}
+                              onFocusLeaf={handleFocusLeaf}
+                            />
+                          )}
+                        </div>
+                        {pluginStateHydrated && (
+                          <div
+                            className={
+                              !showMainTerminal
+                                ? "absolute inset-0"
+                                : "hidden absolute inset-0"
+                            }
+                          >
+                            <ToolPanel
+                              tool={toolView}
+                              active={!showMainTerminal}
+                              piSidebarTarget={piSidebarTarget}
+                              onShowPi={() => selectDockTab("pi")}
+                              onOpenFile={(path) => handleOpenFile(path, false)}
+                              onOpenDiff={(path, diff) => {
+                                const normalized = path.replace(/\\/g, "/");
+                                const matchedRoot = workspaceRoots.find(
+                                  (root) =>
+                                    normalized
+                                      .toLowerCase()
+                                      .startsWith(
+                                        root.replace(/\\/g, "/").toLowerCase(),
+                                      ),
+                                );
+                                const parent =
+                                  path.replace(/[\\/][^\\/]+$/, "") || path;
+                                setFilePanelClosed(false);
+                                openGitDiffTab({
+                                  repoRoot: matchedRoot ?? parent,
+                                  path,
+                                  diff,
+                                });
+                              }}
+                              workspaceRoots={workspaceRoots}
+                              onAddWorkspaceRoot={(path) => void addRoot(path)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </ResizablePanel>
+                  <ResizableHandle
+                    withHandle
+                    className={filePanelOpen ? undefined : "hidden"}
+                  />
+                  <ResizablePanel
+                    id="file-preview"
+                    panelRef={filePanelRef}
+                    defaultSize={
+                      filePanelOpen
+                        ? `${filePanelDefaultSize.current}px`
+                        : "0px"
+                    }
+                    minSize={filePanelOpen ? "220px" : "0px"}
+                    groupResizeBehavior="preserve-pixel-size"
+                    maxSize={filePanelOpen ? undefined : "0px"}
+                  >
+                    <div
+                      className="relative flex h-full min-h-0 min-w-0 flex-col bg-background"
+                      aria-hidden={!filePanelOpen}
+                    >
+                      <div className="flex h-8 shrink-0 items-center justify-end border-b border-border/60 px-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="关闭文件分屏"
+                          title="关闭文件分屏"
+                          onClick={() => setFilePanelClosed(true)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                      <div className="relative min-h-0 flex-1">
+                        <WorkspaceSurface
+                          primaryTabs={primaryEditorTabs}
+                          primaryActiveId={primaryActiveId}
+                          secondaryTabs={secondaryEditorTabs}
+                          secondaryActiveId={secondaryActiveId}
                           workspaceRoots={workspaceRoots}
-                          onAddWorkspaceRoot={(path) => void addRoot(path)}
+                          onSelectPrimary={selectPrimaryEditor}
+                          onSelectSecondary={selectSecondaryEditor}
+                          onClose={handleClose}
+                          onCloseTabsToRight={handleCloseTabsToRightInGroup}
+                          onPin={pinTab}
+                          onRename={handleRenameTab}
+                          onReorderPrimary={reorderPrimaryEditors}
+                          onReorderSecondary={reorderSecondaryEditors}
+                          onOverrideLanguage={setOverrideLanguage}
+                          onMoveToGroup={moveEditorToGroup}
+                          registerEditorHandle={registerEditorHandle}
+                          onEditorDirtyChange={handleEditorDirty}
+                          onSetMarkdownView={setMarkdownView}
+                          onSetHtmlView={setHtmlView}
+                          onFocusSearch={() => searchInlineRef.current?.focus()}
+                          onFocusEditor={focusEditor}
                         />
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
               </ResizablePanel>
             </ResizablePanelGroup>
           </main>

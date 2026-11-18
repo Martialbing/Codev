@@ -7,6 +7,7 @@ const store = new LazyStore("codev-ui-state.json", {
 const values = new Map<string, string>();
 const legacyKeys = [
   "codev.sidebar.width",
+  "codev.workspace.file-panel.width",
   "codev.sidebar.collapsed",
   "codev.terminal.width",
   "codev.terminal.collapsed",

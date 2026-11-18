@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   completeWelcome,
+  defaultFilePanelWidth,
+  FILE_PANEL_WIDTH_KEY,
   FILE_TREE_ROOTS_KEY,
   firstLayoutSizes,
   LAYOUT_INITIALIZED_KEY,
   needsFirstLayout,
-  shouldShowWelcome,
+  readFilePanelWidth,
   SIDEBAR_COLLAPSED_KEY,
+  shouldPersistFilePanelWidth,
+  shouldShowWelcome,
   TERMINAL_COLLAPSED_KEY,
   WELCOME_KEY,
   WELCOME_STAMP_KEY,
@@ -23,9 +27,9 @@ function memory() {
 }
 
 describe("firstLayoutSizes", () => {
-  it("splits a wide window into roughly equal side panels", () => {
+  it("uses a fixed Herdr-like sidebar and a roomy default right panel", () => {
     const sizes = firstLayoutSizes(1500);
-    expect(sizes.sidebar).toBe(500);
+    expect(sizes.sidebar).toBe(260);
     expect(sizes.terminal).toBe(500);
   });
 
@@ -33,6 +37,23 @@ describe("firstLayoutSizes", () => {
     const sizes = firstLayoutSizes(200);
     expect(sizes.sidebar).toBeGreaterThanOrEqual(220);
     expect(sizes.terminal).toBeGreaterThanOrEqual(220);
+  });
+});
+
+describe("file panel layout", () => {
+  it("sizes a first-open preview to half of available width", () => {
+    expect(defaultFilePanelWidth(1200)).toBe(600);
+    expect(defaultFilePanelWidth(500)).toBe(250);
+  });
+
+  it("does not persist an automatic size, but restores a user's resized width", () => {
+    const store = memory();
+    expect(readFilePanelWidth(store)).toBeNull();
+    expect(shouldPersistFilePanelWidth(420, false)).toBe(false);
+    expect(shouldPersistFilePanelWidth(420, true)).toBe(true);
+    expect(shouldPersistFilePanelWidth(200, true)).toBe(false);
+    store.setItem(FILE_PANEL_WIDTH_KEY, "420");
+    expect(readFilePanelWidth(store)).toBe(420);
   });
 });
 
@@ -55,7 +76,7 @@ describe("shouldShowWelcome", () => {
     expect(shouldShowWelcome("0.9.3", store)).toBe(false);
   });
 
-  it("shows welcome again if the three-column layout was never applied", () => {
+  it("shows welcome again if the layout was never applied", () => {
     const store = memory();
     store.setItem(WELCOME_KEY, "1");
     expect(needsFirstLayout(store)).toBe(true);
@@ -64,7 +85,7 @@ describe("shouldShowWelcome", () => {
 });
 
 describe("completeWelcome", () => {
-  it("marks welcome done, layout initialized, and expands both side panels", () => {
+  it("marks welcome done and expands the default side panels", () => {
     const store = memory();
     const sizes = completeWelcome("0.9.4", 1500, store);
     expect(store.getItem(WELCOME_KEY)).toBe("1");
@@ -73,7 +94,7 @@ describe("completeWelcome", () => {
     expect(store.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("0");
     expect(store.getItem(TERMINAL_COLLAPSED_KEY)).toBe("0");
     expect(store.getItem(FILE_TREE_ROOTS_KEY)).toBeNull();
-    expect(sizes.sidebar).toBe(500);
+    expect(sizes.sidebar).toBe(260);
     expect(sizes.terminal).toBe(500);
   });
 });

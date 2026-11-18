@@ -1,3 +1,4 @@
+import { uiState } from "@/lib/uiState";
 import {
   type RefObject,
   useCallback,
@@ -6,11 +7,10 @@ import {
   useState,
 } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
-import { uiState } from "@/lib/uiState";
 
-const SIDEBAR_DEFAULT_WIDTH = 260;
+export const SIDEBAR_DEFAULT_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 220;
-const SIDEBAR_WIDTH_STORAGE_KEY = "codev.sidebar.width";
+export const SIDEBAR_WIDTH_STORAGE_KEY = "codev.sidebar.width";
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "codev.sidebar.collapsed";
 
 export function shouldPersistSidebarWidth(

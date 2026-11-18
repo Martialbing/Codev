@@ -77,6 +77,8 @@ export type SidebarThread = PiSessionSummary & {
 type Props = {
   width: number;
   onWidthChange: (width: number) => void;
+  /** 嵌入主窗口侧栏时由外层面板负责宽度。 */
+  embedded?: boolean;
   projects: string[];
   threads: SidebarThread[];
   selectedKey: string | null;
@@ -925,50 +927,56 @@ export function PiSidebar(props: Props) {
   return (
     <aside
       data-testid="pi-sidebar"
-      className="relative flex h-full min-h-0 min-w-0 max-w-[calc(100%-180px)] shrink-0 flex-col border-l border-border bg-card"
-      style={{ width }}
+      className={
+        props.embedded
+          ? "relative flex h-full min-h-0 min-w-0 w-full flex-col bg-card"
+          : "relative flex h-full min-h-0 min-w-0 max-w-[calc(100%-180px)] shrink-0 flex-col border-r border-border bg-card"
+      }
+      style={props.embedded ? undefined : { width }}
     >
-      <div
-        role="separator"
-        aria-label="调整 Pi 侧栏宽度"
-        aria-orientation="vertical"
-        aria-valuenow={width}
-        tabIndex={0}
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-ring/20 focus-visible:bg-ring/30 focus-visible:outline-none"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          const sidebar = event.currentTarget.parentElement!;
-          const area = sidebar.parentElement!.getBoundingClientRect();
-          setWidth(
-            Math.max(
-              120,
-              Math.min(area.width - 180, area.right - event.clientX),
-            ),
-          );
-        }}
-        onPointerUp={(event) =>
-          event.currentTarget.releasePointerCapture(event.pointerId)
-        }
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          const area = event.currentTarget.parentElement!.parentElement!;
-          setWidth(
-            Math.max(
-              120,
-              Math.min(
-                area.clientWidth - 180,
-                width + (event.key === "ArrowLeft" ? 16 : -16),
+      {!props.embedded && (
+        <div
+          role="separator"
+          aria-label="调整 Pi 侧栏宽度"
+          aria-orientation="vertical"
+          aria-valuenow={width}
+          tabIndex={0}
+          className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none hover:bg-ring/20 focus-visible:bg-ring/30 focus-visible:outline-none"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            const sidebar = event.currentTarget.parentElement!;
+            const area = sidebar.parentElement!.getBoundingClientRect();
+            setWidth(
+              Math.max(
+                120,
+                Math.min(area.width - 180, event.clientX - area.left),
               ),
-            ),
-          );
-        }}
-        onDoubleClick={() => setWidth(236)}
-      />
+            );
+          }}
+          onPointerUp={(event) =>
+            event.currentTarget.releasePointerCapture(event.pointerId)
+          }
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const area = event.currentTarget.parentElement!.parentElement!;
+            setWidth(
+              Math.max(
+                120,
+                Math.min(
+                  area.clientWidth - 180,
+                  width + (event.key === "ArrowLeft" ? -16 : 16),
+                ),
+              ),
+            );
+          }}
+          onDoubleClick={() => setWidth(236)}
+        />
+      )}
       <div className="relative mx-2 mt-3 mb-2">
         <HugeiconsIcon
           icon={Search01Icon}

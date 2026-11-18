@@ -69,6 +69,8 @@ export function ToolPanel({
   onOpenDiff,
   workspaceRoots = [],
   onAddWorkspaceRoot,
+  piSidebarTarget,
+  onShowPi,
 }: {
   tool?: ToolId;
   active?: boolean;
@@ -76,6 +78,8 @@ export function ToolPanel({
   onOpenDiff?: (path: string, diff: string) => void;
   workspaceRoots?: string[];
   onAddWorkspaceRoot?: (path: string) => void;
+  piSidebarTarget?: HTMLElement | null;
+  onShowPi?: () => void;
 }) {
   const browserEnabled = usePluginStore((state) => state.enabled.browser);
   const workbenchPi = useWorkbench(
@@ -98,7 +102,7 @@ export function ToolPanel({
     if (active && tool === "codex") setCodexVisited(true);
   }, [tool, active]);
   useEffect(() => {
-    if (active && tool === "pi") setPiVisited(true);
+    if (active && (tool === "pi" || tool === "browser")) setPiVisited(true);
   }, [tool, active]);
   useEffect(() => {
     if (!piEnabled) {
@@ -167,11 +171,13 @@ export function ToolPanel({
             }
           >
             <PiAgentPane
-              active={active && (tool === "pi" || workbenchPi)}
+              active={(active && tool === "pi") || workbenchPi}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
               workspaceRoots={workspaceRoots}
               onAddWorkspaceRoot={onAddWorkspaceRoot}
+              sidebarTarget={piSidebarTarget}
+              onShowConversation={onShowPi}
             />
           </Suspense>
         )}

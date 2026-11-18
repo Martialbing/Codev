@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -190,12 +191,17 @@ export function PiAgentPane({
   onOpenDiff,
   workspaceRoots = [],
   onAddWorkspaceRoot,
+  sidebarTarget,
+  onShowConversation,
 }: {
   active: boolean;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string, diff: string) => void;
   workspaceRoots?: string[];
   onAddWorkspaceRoot?: (path: string) => void;
+  /** 将原来的线程栏放入主窗口左侧，而不是复制会话状态。 */
+  sidebarTarget?: HTMLElement | null;
+  onShowConversation?: () => void;
 }) {
   const [initialized, setInitialized] = useState(false);
   const client = useRef<PiWorkspaceClient | null>(null);
@@ -747,6 +753,7 @@ export function PiAgentPane({
   };
   /** 新线程建立后绑定该项目，其他线程的进程继续运行。 */
   const create = async (path: string) => {
+    onShowConversation?.();
     if (viewportKeys.length && !viewportKeys.includes(null)) {
       toast.info("建议关闭已有窗口或者新开窗口");
       return;
@@ -820,6 +827,7 @@ export function PiAgentPane({
   };
   /** 首次选择读取历史，后续复用内存中的会话和已加载分页。 */
   const select = async (thread: SidebarThread, targetIndex?: number) => {
+    onShowConversation?.();
     if (!activateThread(thread.key, targetIndex)) return;
     setProject(thread.cwd);
     setSearchOpen(false);
@@ -1332,15 +1340,17 @@ export function PiAgentPane({
               onPlus={addViewport}
             />
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={sidebarOpen ? "收起线程栏" : "展开线程栏"}
-            title={sidebarOpen ? "收起线程栏" : "展开线程栏"}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            <HugeiconsIcon icon={LayoutRightIcon} size={16} />
-          </Button>
+          {!sidebarTarget && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={sidebarOpen ? "收起线程栏" : "展开线程栏"}
+              title={sidebarOpen ? "收起线程栏" : "展开线程栏"}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <HugeiconsIcon icon={LayoutRightIcon} size={16} />
+            </Button>
+          )}
         </div>
         <div
           data-testid="pi-thread-title"
@@ -1374,78 +1384,88 @@ export function PiAgentPane({
         </Button>
       </header>
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {sidebarOpen && (
-          <PiSidebar
-            width={sidebarWidth}
-            onWidthChange={setSidebarWidth}
-            projects={projects}
-            threads={rows}
-            selectedKey={selected}
-            viewportDrop={
-              viewportKeys.length
-                ? {
-                    hover: (x, y) => {
-                      const index = viewportAtPoint(x, y);
-                      setDropViewport(index);
-                      return index !== null;
-                    },
-                    clear: () => setDropViewport(null),
-                    drop: (thread, x, y) => {
-                      const index = viewportAtPoint(x, y);
-                      if (index === null) return false;
-                      run(select(thread, index), thread.key);
-                      return true;
-                    },
-                  }
-                : undefined
-            }
-            revealThreadKey={revealThreadKey}
-            selectedProject={activeCwd}
-            organization={organization}
-            organizationReady={hydrated && sessionsReady}
-            onOrganize={(next) => run(setPiAgentOrganization(next))}
-            onSelectProject={(cwd) => run(selectProject(cwd))}
-            onAddProject={() => run(addProject())}
-            onRemoveProject={(path) => run(removeProject(path))}
-            onNew={(path) => run(create(path))}
-            onSelect={(thread) => run(select(thread), thread.key)}
-            onCommitRename={(thread, name) =>
-              run(commitRename(thread, name), thread.key)
-            }
-            onRename={(thread) =>
-              setRename({ thread, name: thread.name || thread.preview || "" })
-            }
-            onFork={(thread) => run(forkThread(thread), thread.key)}
-            onWorkbench={(row) =>
-              run(
-                (async () => {
-                  const thread = await prepareThread(row);
-                  useWorkbench.getState().add({
-                    kind: "pi",
-                    id: thread.key,
-                    title: row.name || row.preview || "Pi Agent",
-                  });
-                })().catch((error) => {
-                  toast.error(String(error));
-                  throw error;
-                }),
-                row.key,
-              )
-            }
-            onExport={(thread) => run(exportThread(thread), thread.key)}
-            onClose={setDeleteTarget}
-            onCopyPath={(path) => run(writeText(path))}
-            workspaceRoots={workspaceRoots}
-            onAddWorkspaceRoot={onAddWorkspaceRoot}
-            projectOrder={projectOrder}
-            sessionOrder={sessionOrder}
-            onProjectOrder={(order) => run(setPiAgentProjectOrder(order))}
-            onSessionOrder={(order) => run(setPiAgentSessionOrder(order))}
-            temporaryHome={piHome}
-          />
-        )}
+        {(sidebarTarget || sidebarOpen) &&
+          (() => {
+            const sidebar = (
+              <PiSidebar
+                width={sidebarWidth}
+                onWidthChange={setSidebarWidth}
+                embedded={!!sidebarTarget}
+                projects={projects}
+                threads={rows}
+                selectedKey={selected}
+                viewportDrop={
+                  viewportKeys.length
+                    ? {
+                        hover: (x, y) => {
+                          const index = viewportAtPoint(x, y);
+                          setDropViewport(index);
+                          return index !== null;
+                        },
+                        clear: () => setDropViewport(null),
+                        drop: (thread, x, y) => {
+                          const index = viewportAtPoint(x, y);
+                          if (index === null) return false;
+                          run(select(thread, index), thread.key);
+                          return true;
+                        },
+                      }
+                    : undefined
+                }
+                revealThreadKey={revealThreadKey}
+                selectedProject={activeCwd}
+                organization={organization}
+                organizationReady={hydrated && sessionsReady}
+                onOrganize={(next) => run(setPiAgentOrganization(next))}
+                onSelectProject={(cwd) => run(selectProject(cwd))}
+                onAddProject={() => run(addProject())}
+                onRemoveProject={(path) => run(removeProject(path))}
+                onNew={(path) => run(create(path))}
+                onSelect={(thread) => run(select(thread), thread.key)}
+                onCommitRename={(thread, name) =>
+                  run(commitRename(thread, name), thread.key)
+                }
+                onRename={(thread) =>
+                  setRename({
+                    thread,
+                    name: thread.name || thread.preview || "",
+                  })
+                }
+                onFork={(thread) => run(forkThread(thread), thread.key)}
+                onWorkbench={(row) =>
+                  run(
+                    (async () => {
+                      const thread = await prepareThread(row);
+                      useWorkbench.getState().add({
+                        kind: "pi",
+                        id: thread.key,
+                        title: row.name || row.preview || "Pi Agent",
+                      });
+                    })().catch((error) => {
+                      toast.error(String(error));
+                      throw error;
+                    }),
+                    row.key,
+                  )
+                }
+                onExport={(thread) => run(exportThread(thread), thread.key)}
+                onClose={setDeleteTarget}
+                onCopyPath={(path) => run(writeText(path))}
+                workspaceRoots={workspaceRoots}
+                onAddWorkspaceRoot={onAddWorkspaceRoot}
+                projectOrder={projectOrder}
+                sessionOrder={sessionOrder}
+                onProjectOrder={(order) => run(setPiAgentProjectOrder(order))}
+                onSessionOrder={(order) => run(setPiAgentSessionOrder(order))}
+                temporaryHome={piHome}
+              />
+            );
+            return sidebarTarget
+              ? createPortal(sidebar, sidebarTarget)
+              : sidebar;
+          })()}
         <ResizableViewportGrid
-          className="order-first min-h-0 min-w-0 flex-1"
+          className="min-h-0 min-w-0 flex-1"
           columns={viewportColumns}
           rows={viewportRows}
           positions={renderKeys.map((_, index) =>

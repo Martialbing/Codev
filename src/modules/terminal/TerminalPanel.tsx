@@ -49,6 +49,7 @@ type Props = {
   tabs: Tab[];
   /** Hide the terminal-owned header when hosted by the right dock. */
   showHeader?: boolean;
+  /** 不可见时只保留已有视口，不主动唤醒其他已恢复的终端。 */
   visible?: boolean;
   activeId: number;
   onSelect: (id: number) => void;

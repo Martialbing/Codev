@@ -544,7 +544,10 @@ export function planSpaceRemoval(
   return { tabs: next, disposeLeafIds, activeId };
 }
 
-export function useTabs(initial?: Partial<TerminalTab>) {
+export function useTabs(
+  initial?: Partial<TerminalTab>,
+  options?: { deferActiveTerminal?: boolean },
+) {
   const [tabs, setTabs] = useState<Tab[]>(() => {
     const tabId = 1;
     const leafId = 2;
@@ -582,10 +585,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     if (!booted) return;
     setTabs((curr) => {
       const t = curr.find((x) => x.id === activeId);
-      if (!t?.cold) return curr;
+      if (!t?.cold || (t.kind === "terminal" && options?.deferActiveTerminal))
+        return curr;
       return curr.map((x) => (x.id === activeId ? { ...x, cold: false } : x));
     });
-  }, [activeId, booted]);
+  }, [activeId, booted, options?.deferActiveTerminal]);
 
   const allocId = useCallback(() => nextIdRef.current++, []);
 
