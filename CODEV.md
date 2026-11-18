@@ -2,7 +2,7 @@
 
 Codev 是一个基于 Tauri 2 + Rust + React 的极简代码和文档阅读器。产品核心为多项目工作区、文件树、代码/Markdown 阅读器、集成终端，以及用户主动开启的内置轻量工具。
 
-开发窗口、核验方式和发版文案规范见 [AGENT.md](AGENT.md)。
+开发窗口、核验方式和发版文案规范见 [AGENTS.md](AGENTS.md)。Dev 滚动版：`pnpm dev:roll` 直接替换已安装的 Codev 可执行文件（见 AGENTS.md），不产出便携包。
 
 ## Product boundary
 

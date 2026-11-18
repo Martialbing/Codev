@@ -18,6 +18,23 @@ pnpm tauri dev --config src-tauri/tauri.portable.conf.json
 
 这条命令使用 `app.teague.codev.portable`，与安装版 `app.teague.codev` 并存。Vite 热更新走 `http://localhost:1420`，安装版不占用该端口。界面改完后由 agent 直接启动这个审核窗口，并写明要看的点和反馈方式；不要只把命令丢给用户自己跑。
 
+自用 dev 滚动版（每天跑最新提交，不打包、不发版）：
+
+```bash
+pnpm dev:roll            # 构建 release 版并替换已安装的 Codev
+pnpm dev:roll --debug    # 用 debug profile（编译快、运行慢）
+pnpm dev:roll --restart  # 替换后结束并重新打开它（会丢未保存的编辑）
+pnpm dev:roll --pull     # 先 git pull --ff-only
+pnpm dev:roll --no-launch
+```
+
+- 只有一个 Codev：直接替换 `%LOCALAPPDATA%\Codev\codev.exe`，identifier 沿用 `app.teague.codev`，状态、任务栏和文件关联都不用迁移；上一版保留为 `codev.exe.old`。
+- 只跑 `tauri build --no-bundle`：不生成便携包、不写 `artifacts/`、不改版本号、不打 tag。
+- 默认不杀正在运行的实例：文件先改名再写入，关掉窗口下次启动就是新版；只有显式加 `--restart` 才按可执行文件确切路径结束它。
+- 构建前检查并发 cargo/rustc 和 `rustc -vV`；任一项不通过就停下，已安装的版本保持不动。
+- 它替换的是正式安装版的文件：之后装正式发行包会把它覆盖回去，这是预期行为。
+- 它不是界面核验入口：拖拽、窗口和原生行为的回归仍然用 `pnpm tauri dev`（审核窗口用 `app.teague.codev.portable`，与日常版互不影响）。
+
 核验入口按改动类型选择：
 
 1. Dock、窗口、原生拖放、WebView 行为：必须用上面的 Tauri 开发窗口。

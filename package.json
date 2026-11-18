@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:roll": "node scripts/dev-roll.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "node scripts/with-cargo-cache.mjs tauri",
